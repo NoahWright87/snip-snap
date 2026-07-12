@@ -1,14 +1,10 @@
-import { Button, Card, Pill, Select, Text } from "@noahwright/design";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Button, Card, Select, Text } from "@noahwright/design";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api, ExportJobStatus, Resolution, Segment, Video, videoStreamUrl } from "../api";
+import SegmentEditorPanel from "../components/SegmentEditorPanel";
 import Timeline from "../components/Timeline";
-
-function formatTime(seconds: number): string {
-  const mins = Math.floor(seconds / 60);
-  const secs = (seconds % 60).toFixed(1);
-  return `${mins}:${secs.padStart(4, "0")}`;
-}
+import TransportBar from "../components/TransportBar";
 
 function dirOf(path: string): string {
   const idx = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
@@ -25,101 +21,48 @@ export default function EditorView() {
   const videoId = Number(id);
   const navigate = useNavigate();
   const videoRef = useRef<HTMLVideoElement>(null);
+  const initTriggered = useRef(false);
 
   const [video, setVideo] = useState<Video | null>(null);
   const [segments, setSegments] = useState<Segment[]>([]);
   const [existingTags, setExistingTags] = useState<string[]>([]);
   const [currentTime, setCurrentTime] = useState(0);
-  const [pendingStart, setPendingStart] = useState<number | null>(null);
-  const [pendingEnd, setPendingEnd] = useState<number | null>(null);
-  const [tag, setTag] = useState("");
+  const [playing, setPlaying] = useState(false);
+  const [selectedSegmentId, setSelectedSegmentId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [outputPath, setOutputPath] = useState("");
   const [resolution, setResolution] = useState<Resolution>("1080p");
   const [exportJob, setExportJob] = useState<ExportJobStatus | null>(null);
 
-  const refresh = useCallback(async () => {
+  const refreshSegmentsAndTags = useCallback(async () => {
     try {
-      const [v, segs, tags] = await Promise.all([
-        api.getVideo(videoId),
-        api.listSegments(videoId),
-        api.listTags(),
-      ]);
-      setVideo(v);
+      const [segs, tags] = await Promise.all([api.listSegments(videoId), api.listTags()]);
       setSegments(segs);
       setExistingTags(tags);
-      setError(null);
     } catch (err) {
       setError(String(err));
     }
   }, [videoId]);
 
+  const refresh = useCallback(async () => {
+    try {
+      const v = await api.getVideo(videoId);
+      setVideo(v);
+      await refreshSegmentsAndTags();
+      setError(null);
+    } catch (err) {
+      setError(String(err));
+    }
+  }, [videoId, refreshSegmentsAndTags]);
+
   useEffect(() => {
     refresh();
   }, [refresh]);
 
-  const setIn = useCallback(() => setPendingStart(currentTime), [currentTime]);
-  const setOut = useCallback(() => setPendingEnd(currentTime), [currentTime]);
-
-  const saveSegment = useCallback(
-    async (decision: "keep" | "cut", tagOverride?: string) => {
-      if (pendingStart == null || pendingEnd == null) {
-        setError("Mark an in and out point first.");
-        return;
-      }
-      const [start, end] = [pendingStart, pendingEnd].sort((a, b) => a - b);
-      try {
-        await api.createSegment(videoId, {
-          start_time: start,
-          end_time: end,
-          decision,
-          tag: (tagOverride ?? tag).trim() || null,
-        });
-        setPendingStart(null);
-        setPendingEnd(null);
-        setTag("");
-        await refresh();
-      } catch (err) {
-        setError(String(err));
-      }
-    },
-    [pendingStart, pendingEnd, tag, videoId, refresh],
-  );
-
-  const deleteSegment = useCallback(
-    async (segmentId: number) => {
-      try {
-        await api.deleteSegment(segmentId);
-        await refresh();
-      } catch (err) {
-        setError(String(err));
-      }
-    },
-    [refresh],
-  );
-
-  // Keyboard shortcuts for fast scrubbing: I/O mark in/out, K keeps, X cuts.
-  // Ignored while typing in a text field.
-  useEffect(() => {
-    function onKeyDown(e: KeyboardEvent) {
-      const target = e.target as HTMLElement;
-      if (target.tagName === "INPUT" || target.tagName === "TEXTAREA") return;
-      if (e.key === "i" || e.key === "I") setIn();
-      else if (e.key === "o" || e.key === "O") setOut();
-      else if (e.key === "k" || e.key === "K") saveSegment("keep");
-      else if (e.key === "x" || e.key === "X") saveSegment("cut");
-    }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [setIn, setOut, saveSegment]);
-
-  // Pick up an in-progress or already-finished export when arriving at/
-  // returning to this view, so navigating away mid-export doesn't lose it.
   useEffect(() => {
     api.getExportStatus(videoId).then(setExportJob).catch(() => {});
   }, [videoId]);
 
-  // Poll while an export is running.
   useEffect(() => {
     if (exportJob?.state !== "running") return;
     const timer = window.setTimeout(async () => {
@@ -131,6 +74,115 @@ export default function EditorView() {
     }, 1000);
     return () => window.clearTimeout(timer);
   }, [exportJob, videoId]);
+
+  // The timeline is always a full partition of the video - seed one
+  // full-length "keep" segment the moment we reliably know the real
+  // duration (the <video> element's own metadata, not ffprobe, which may
+  // not have succeeded/finished yet).
+  async function handleLoadedMetadata() {
+    const el = videoRef.current;
+    if (!el) return;
+    setCurrentTime(el.currentTime);
+    if (segments.length === 0 && !initTriggered.current && el.duration > 0) {
+      initTriggered.current = true;
+      try {
+        setSegments(await api.initSegments(videoId, el.duration));
+      } catch (err) {
+        setError(String(err));
+      }
+    }
+  }
+
+  const duration = video?.duration ?? videoRef.current?.duration ?? 0;
+
+  const selectedSegment = useMemo(
+    () => segments.find((s) => s.id === selectedSegmentId) ?? null,
+    [segments, selectedSegmentId],
+  );
+
+  function seekTo(time: number) {
+    const clamped = Math.min(duration, Math.max(0, time));
+    if (videoRef.current) videoRef.current.currentTime = clamped;
+    setCurrentTime(clamped);
+  }
+
+  function togglePlay() {
+    const el = videoRef.current;
+    if (!el) return;
+    if (el.paused) el.play();
+    else el.pause();
+  }
+
+  async function handleSnip() {
+    if (duration <= 0) return;
+    try {
+      setSegments(await api.splitSegment(videoId, currentTime, duration));
+      setSelectedSegmentId(null);
+    } catch (err) {
+      setError(String(err));
+    }
+  }
+
+  async function handleToggleDelete() {
+    if (!selectedSegment) return;
+    try {
+      await api.updateSegment(selectedSegment.id, {
+        decision: selectedSegment.decision === "cut" ? "keep" : "cut",
+      });
+      await refreshSegmentsAndTags();
+    } catch (err) {
+      setError(String(err));
+    }
+  }
+
+  async function handleAddTag(tag: string) {
+    if (!selectedSegment) return;
+    try {
+      await api.addTag(selectedSegment.id, tag);
+      await refreshSegmentsAndTags();
+    } catch (err) {
+      setError(String(err));
+    }
+  }
+
+  async function handleRemoveTag(tag: string) {
+    if (!selectedSegment) return;
+    try {
+      await api.removeTag(selectedSegment.id, tag);
+      await refreshSegmentsAndTags();
+    } catch (err) {
+      setError(String(err));
+    }
+  }
+
+  // Space plays/pauses, Delete toggles the selected clip's delete state.
+  // Ignored while typing in a text field (including the tag combobox).
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      const target = e.target as HTMLElement;
+      if (target.tagName === "INPUT" || target.tagName === "TEXTAREA") return;
+      if (e.key === " ") {
+        e.preventDefault();
+        togglePlay();
+      } else if (e.key === "Delete") {
+        handleToggleDelete();
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedSegment]);
+
+  async function handleBrowseOutputPath() {
+    try {
+      const initialDir = outputPath ? dirOf(outputPath) : `${dirOf(video!.path)}/edited`;
+      const initialFile = outputPath ? undefined : defaultExportFilename(video!.filename);
+      const result = await api.pickSaveFile(initialDir, initialFile);
+      if (result.path) setOutputPath(result.path);
+    } catch {
+      setError("Native file picker unavailable — type the path manually.");
+    }
+  }
 
   async function handleExport() {
     try {
@@ -148,19 +200,6 @@ export default function EditorView() {
     return <Text>{error ?? "Loading…"}</Text>;
   }
 
-  const duration = video.duration ?? videoRef.current?.duration ?? 0;
-
-  async function handleBrowseOutputPath() {
-    try {
-      const initialDir = outputPath ? dirOf(outputPath) : `${dirOf(video!.path)}/edited`;
-      const initialFile = outputPath ? undefined : defaultExportFilename(video!.filename);
-      const result = await api.pickSaveFile(initialDir, initialFile);
-      if (result.path) setOutputPath(result.path);
-    } catch {
-      setError("Native file picker unavailable — type the path manually.");
-    }
-  }
-
   return (
     <div>
       <Button variant="text" onClick={() => navigate("/")}>
@@ -171,93 +210,39 @@ export default function EditorView() {
 
       {error && <Text tone="error">{error}</Text>}
 
+      {/* No native controls: the custom timeline below is the only seek UI,
+          to avoid two scrubbers disagreeing with each other. */}
       <video
         ref={videoRef}
         src={videoStreamUrl(video.id)}
-        controls
         style={{ width: "100%", maxHeight: 480, background: "#000", borderRadius: 8 }}
         onTimeUpdate={() => setCurrentTime(videoRef.current?.currentTime ?? 0)}
-        onLoadedMetadata={() => setCurrentTime(videoRef.current?.currentTime ?? 0)}
+        onLoadedMetadata={handleLoadedMetadata}
+        onPlay={() => setPlaying(true)}
+        onPause={() => setPlaying(false)}
       />
 
       <div style={{ margin: "0.75rem 0" }}>
-        <Timeline
-          duration={duration}
-          currentTime={currentTime}
-          segments={segments}
-          pendingStart={pendingStart}
-          pendingEnd={pendingEnd}
-          onSeek={(t) => {
-            if (videoRef.current) videoRef.current.currentTime = t;
-          }}
-        />
+        <TransportBar playing={playing} onTogglePlay={togglePlay} onStep={(d) => seekTo(currentTime + d)} />
       </div>
 
-      <Card title="Mark a segment">
-        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center" }}>
-          <Button variant="outline" onClick={setIn}>
-            Set in ({pendingStart != null ? formatTime(pendingStart) : "—"}) [I]
-          </Button>
-          <Button variant="outline" onClick={setOut}>
-            Set out ({pendingEnd != null ? formatTime(pendingEnd) : "—"}) [O]
-          </Button>
+      <Timeline
+        duration={duration}
+        currentTime={currentTime}
+        segments={segments}
+        selectedSegmentId={selectedSegmentId}
+        onSelectSegment={setSelectedSegmentId}
+        onSeek={seekTo}
+        onSnip={handleSnip}
+      />
 
-          {/* Plain input + datalist for tag autocomplete: the design system's
-              Select only wraps a native fixed-option <select>, no free-text
-              combobox yet (tracked in snip-snap#1 / design#15). */}
-          <input
-            list="tag-suggestions"
-            placeholder="tag (optional)"
-            value={tag}
-            onChange={(e) => setTag(e.target.value)}
-            style={{ padding: "0.4rem 0.6rem", borderRadius: 6, border: "1px solid #ccc" }}
-          />
-          <datalist id="tag-suggestions">
-            {existingTags.map((t) => (
-              <option key={t} value={t} />
-            ))}
-          </datalist>
-
-          <Button color="confirm" onClick={() => saveSegment("keep")}>
-            Save as keep [K]
-          </Button>
-          <Button color="danger" onClick={() => saveSegment("cut")}>
-            Save as cut [X]
-          </Button>
-          <Button variant="ghost" onClick={() => saveSegment("cut", "structural_intro")}>
-            Mark as intro
-          </Button>
-          <Button variant="ghost" onClick={() => saveSegment("cut", "structural_outro")}>
-            Mark as outro
-          </Button>
-        </div>
-      </Card>
-
-      <Card title={`Segments (${segments.length})`} style={{ marginTop: "1rem" }}>
-        {segments.length === 0 && <Text>No segments marked yet.</Text>}
-        {segments.map((seg) => (
-          <div
-            key={seg.id}
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              padding: "0.4rem 0",
-              borderBottom: "1px solid #eee",
-            }}
-          >
-            <span>
-              {formatTime(seg.start_time)} – {formatTime(seg.end_time)}
-            </span>
-            <Pill variant={seg.decision === "keep" ? "confirm" : "danger"}>{seg.decision}</Pill>
-            {seg.tag && <Pill variant="secondary">{seg.tag}</Pill>}
-            <Pill>{seg.provenance}</Pill>
-            <Button variant="text" color="danger" onClick={() => deleteSegment(seg.id)}>
-              Delete
-            </Button>
-          </div>
-        ))}
-      </Card>
+      <SegmentEditorPanel
+        segment={selectedSegment}
+        existingTags={existingTags}
+        onToggleDelete={handleToggleDelete}
+        onAddTag={handleAddTag}
+        onRemoveTag={handleRemoveTag}
+      />
 
       <Card title="Export" style={{ marginTop: "1rem" }}>
         <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "flex-end" }}>

@@ -23,10 +23,16 @@ CREATE TABLE IF NOT EXISTS segments (
     start_time REAL NOT NULL,
     end_time REAL NOT NULL,
     decision TEXT NOT NULL CHECK (decision IN ('keep', 'cut')),
-    tag TEXT,
     provenance TEXT NOT NULL DEFAULT 'manual'
         CHECK (provenance IN ('manual', 'diff_inferred', 'suggested_confirmed')),
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- A segment can carry multiple tags (e.g. both "boring" and "off-topic").
+CREATE TABLE IF NOT EXISTS segment_tags (
+    segment_id INTEGER NOT NULL REFERENCES segments(id) ON DELETE CASCADE,
+    tag TEXT NOT NULL,
+    PRIMARY KEY (segment_id, tag)
 );
 
 CREATE TABLE IF NOT EXISTS embeddings_cache (

@@ -5,9 +5,11 @@ good parts. Runs entirely on your own machine — no cloud APIs, no accounts,
 no telemetry. It's a local web app: a Python backend serves both the API and
 the UI on `localhost`, and you use it in your browser.
 
-This is the core manual editing loop (ingest a folder → mark cut/keep
-segments and tags → export). The ML-assisted suggestion pipeline described
-in the original design doc is tracked separately as GitHub issues (#2–#6) and
+This is the core manual editing loop: ingest a folder, scrub the timeline and
+snip (✂️) it into clips, mark the ones you don't want as deleted and tag them,
+then export. Everything not marked deleted ends up in the final file - there's
+no separate "keep" action. The ML-assisted suggestion pipeline described in
+the original design doc is tracked separately as GitHub issues (#2–#6) and
 not built yet.
 
 ## Requirements
@@ -57,8 +59,8 @@ backend processes piling up across sessions.
 On Windows, if ffmpeg isn't already available, the app downloads a build in
 the background on first launch and caches it in `~/.snip-snap/ffmpeg_bin/`
 (one-time; later launches and later versions of the app reuse it). A banner
-at the top of the UI shows progress — you can keep marking cuts/keeps while
-it downloads, export just waits until it's ready. Check
+at the top of the UI shows progress — you can keep editing while it
+downloads, export just waits until it's ready. Check
 `GET /api/ffmpeg/status` directly, or `~/.snip-snap/logs/snip-snap.log` in
 the packaged build, if something seems stuck.
 

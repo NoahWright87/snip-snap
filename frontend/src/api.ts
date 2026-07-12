@@ -36,7 +36,7 @@ export interface Segment {
   start_time: number;
   end_time: number;
   decision: Decision;
-  tag: string | null;
+  tags: string[];
   provenance: Provenance;
   created_at: string;
 }
@@ -75,21 +75,28 @@ export const api = {
 
   listSegments: (videoId: number) => request<Segment[]>(`/videos/${videoId}/segments`),
 
-  createSegment: (
-    videoId: number,
-    segment: { start_time: number; end_time: number; decision: Decision; tag?: string | null },
-  ) =>
-    request<Segment>(`/videos/${videoId}/segments`, {
+  initSegments: (videoId: number, duration: number) =>
+    request<Segment[]>(`/videos/${videoId}/segments/init`, {
       method: "POST",
-      body: JSON.stringify(segment),
+      body: JSON.stringify({ duration }),
     }),
 
-  updateSegment: (
-    id: number,
-    patch: Partial<Pick<Segment, "start_time" | "end_time" | "decision" | "tag">>,
-  ) => request<Segment>(`/segments/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
+  splitSegment: (videoId: number, time: number, duration: number) =>
+    request<Segment[]>(`/videos/${videoId}/segments/split`, {
+      method: "POST",
+      body: JSON.stringify({ time, duration }),
+    }),
+
+  updateSegment: (id: number, patch: Partial<Pick<Segment, "start_time" | "end_time" | "decision">>) =>
+    request<Segment>(`/segments/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
 
   deleteSegment: (id: number) => request<void>(`/segments/${id}`, { method: "DELETE" }),
+
+  addTag: (segmentId: number, tag: string) =>
+    request<Segment>(`/segments/${segmentId}/tags`, { method: "POST", body: JSON.stringify({ tag }) }),
+
+  removeTag: (segmentId: number, tag: string) =>
+    request<Segment>(`/segments/${segmentId}/tags/${encodeURIComponent(tag)}`, { method: "DELETE" }),
 
   listTags: () => request<string[]>("/tags"),
 

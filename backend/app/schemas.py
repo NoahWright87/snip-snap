@@ -39,7 +39,7 @@ class SegmentOut(BaseModel):
     start_time: float
     end_time: float
     decision: Decision
-    tag: Optional[str]
+    tags: list[str]
     provenance: Provenance
     created_at: str
 
@@ -47,8 +47,8 @@ class SegmentOut(BaseModel):
 class SegmentCreate(BaseModel):
     start_time: float
     end_time: float
-    decision: Decision
-    tag: Optional[str] = None
+    decision: Decision = "keep"
+    tags: list[str] = []
     provenance: Provenance = "manual"
 
 
@@ -56,7 +56,19 @@ class SegmentUpdate(BaseModel):
     start_time: Optional[float] = None
     end_time: Optional[float] = None
     decision: Optional[Decision] = None
-    tag: Optional[str] = None
+
+
+class TagRequest(BaseModel):
+    tag: str
+
+
+class InitSegmentsRequest(BaseModel):
+    duration: float
+
+
+class SplitSegmentRequest(BaseModel):
+    time: float
+    duration: float
 
 
 Resolution = Literal["1080p", "720p", "original"]
