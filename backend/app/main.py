@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from app.db import init_db
 from app.ffmpeg_setup import ensure_ffmpeg_ready, get_status as get_ffmpeg_status
 from app.lifecycle import record_heartbeat, request_shutdown, watch_inactivity
-from app.routes import export, segments, videos
+from app.routes import dialogs, export, segments, videos
 from app.schemas import FfmpegStatus
 
 if getattr(sys, "frozen", False):
@@ -38,6 +38,7 @@ app = FastAPI(title="snip-snap", lifespan=lifespan)
 app.include_router(videos.router)
 app.include_router(segments.router)
 app.include_router(export.router)
+app.include_router(dialogs.router)
 
 
 @app.get("/api/health")

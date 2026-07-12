@@ -160,19 +160,49 @@ def test_export_custom_resolution_and_output_path(client, tmp_path, monkeypatch)
     assert status["output_path"] == custom_path
 
 
-def test_export_rejects_output_path_with_missing_folder(client, tmp_path, monkeypatch):
+def test_export_creates_missing_output_folder(client, tmp_path, monkeypatch):
     video_id = _make_video(client, tmp_path)
     client.post(
         f"/api/videos/{video_id}/segments",
         json={"start_time": 0, "end_time": 1, "decision": "keep"},
     )
     monkeypatch.setattr("app.routes.export.ffmpeg_path", lambda: "fake-ffmpeg")
+    monkeypatch.setattr(
+        "app.routes.export.popen_hidden",
+        lambda cmd, **kw: _FakePopen(stdout_lines=_progress_lines()),
+    )
+
+    missing_dir = tmp_path / "nope"
+    assert not missing_dir.exists()
 
     resp = client.post(
         f"/api/videos/{video_id}/export",
-        json={"output_path": str(tmp_path / "nope" / "out.mp4")},
+        json={"output_path": str(missing_dir / "out.mp4")},
     )
-    assert resp.status_code == 400
+    assert resp.status_code == 202
+    assert missing_dir.is_dir()
+
+
+def test_export_default_path_uses_edited_subfolder(client, tmp_path, monkeypatch):
+    video_id = _make_video(client, tmp_path)
+    client.post(
+        f"/api/videos/{video_id}/segments",
+        json={"start_time": 0, "end_time": 1, "decision": "keep"},
+    )
+    monkeypatch.setattr("app.routes.export.ffmpeg_path", lambda: "fake-ffmpeg")
+    monkeypatch.setattr(
+        "app.routes.export.popen_hidden",
+        lambda cmd, **kw: _FakePopen(stdout_lines=_progress_lines()),
+    )
+
+    resp = client.post(f"/api/videos/{video_id}/export", json={})
+    assert resp.status_code == 202
+
+    status = _poll_until_done(client, video_id)
+    assert status["state"] == "succeeded"
+    out_path = status["output_path"]
+    assert out_path.endswith(("edited/clip_edited.mp4", "edited\\clip_edited.mp4"))
+    assert (tmp_path / "library" / "edited").is_dir()
 
 
 def test_build_filter_complex_applies_resolution_cap(client, tmp_path):

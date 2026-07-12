@@ -10,6 +10,16 @@ function formatTime(seconds: number): string {
   return `${mins}:${secs.padStart(4, "0")}`;
 }
 
+function dirOf(path: string): string {
+  const idx = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
+  return idx >= 0 ? path.slice(0, idx) : "";
+}
+
+function defaultExportFilename(filename: string): string {
+  const dot = filename.lastIndexOf(".");
+  return dot >= 0 ? `${filename.slice(0, dot)}_edited${filename.slice(dot)}` : `${filename}_edited`;
+}
+
 export default function EditorView() {
   const { id } = useParams();
   const videoId = Number(id);
@@ -140,6 +150,17 @@ export default function EditorView() {
 
   const duration = video.duration ?? videoRef.current?.duration ?? 0;
 
+  async function handleBrowseOutputPath() {
+    try {
+      const initialDir = outputPath ? dirOf(outputPath) : `${dirOf(video!.path)}/edited`;
+      const initialFile = outputPath ? undefined : defaultExportFilename(video!.filename);
+      const result = await api.pickSaveFile(initialDir, initialFile);
+      if (result.path) setOutputPath(result.path);
+    } catch {
+      setError("Native file picker unavailable — type the path manually.");
+    }
+  }
+
   return (
     <div>
       <Button variant="text" onClick={() => navigate("/")}>
@@ -244,18 +265,23 @@ export default function EditorView() {
             <label style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.25rem" }}>
               Output path (optional)
             </label>
-            <input
-              placeholder="(default: next to source, adds _edited)"
-              value={outputPath}
-              onChange={(e) => setOutputPath(e.target.value)}
-              style={{
-                width: "100%",
-                padding: "0.4rem 0.6rem",
-                borderRadius: 6,
-                border: "1px solid #ccc",
-                boxSizing: "border-box",
-              }}
-            />
+            <div style={{ display: "flex", gap: "0.5rem" }}>
+              <input
+                placeholder="(default: an /edited subfolder next to the source)"
+                value={outputPath}
+                onChange={(e) => setOutputPath(e.target.value)}
+                style={{
+                  flex: 1,
+                  padding: "0.4rem 0.6rem",
+                  borderRadius: 6,
+                  border: "1px solid #ccc",
+                  boxSizing: "border-box",
+                }}
+              />
+              <Button variant="outline" onClick={handleBrowseOutputPath}>
+                Browse…
+              </Button>
+            </div>
           </div>
 
           <Select

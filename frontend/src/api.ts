@@ -102,6 +102,18 @@ export const api = {
   getExportStatus: (videoId: number) => request<ExportJobStatus>(`/videos/${videoId}/export/status`),
 
   getFfmpegStatus: () => request<FfmpegStatus>("/ffmpeg/status"),
+
+  pickFolder: (initialDir?: string) =>
+    request<{ path: string | null }>("/dialogs/pick-folder", {
+      method: "POST",
+      body: JSON.stringify({ initial_dir: initialDir ?? null }),
+    }),
+
+  pickSaveFile: (initialDir?: string, initialFile?: string) =>
+    request<{ path: string | null }>("/dialogs/pick-save-file", {
+      method: "POST",
+      body: JSON.stringify({ initial_dir: initialDir ?? null, initial_file: initialFile ?? null }),
+    }),
 };
 
 export function videoStreamUrl(videoId: number): string {

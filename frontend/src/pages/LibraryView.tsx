@@ -57,6 +57,15 @@ export default function LibraryView() {
     }
   }
 
+  async function handleBrowseFolder() {
+    try {
+      const result = await api.pickFolder(folderPath || undefined);
+      if (result.path) setFolderPath(result.path);
+    } catch {
+      setError("Native folder picker unavailable — type the path manually.");
+    }
+  }
+
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
@@ -115,12 +124,19 @@ export default function LibraryView() {
           { label: "Add", variant: "primary", onClick: handleIngest },
         ]}
       >
-        <Input
-          label="Folder path"
-          placeholder="C:\Videos\MyFootage"
-          value={folderPath}
-          onChange={(e) => setFolderPath(e.target.value)}
-        />
+        <div style={{ display: "flex", gap: "0.5rem", alignItems: "flex-end" }}>
+          <div style={{ flex: 1 }}>
+            <Input
+              label="Folder path"
+              placeholder="C:\Videos\MyFootage"
+              value={folderPath}
+              onChange={(e) => setFolderPath(e.target.value)}
+            />
+          </div>
+          <Button variant="outline" onClick={handleBrowseFolder}>
+            Browse…
+          </Button>
+        </div>
       </Modal>
     </div>
   );

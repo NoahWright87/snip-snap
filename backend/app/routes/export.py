@@ -133,9 +133,15 @@ def export_video(video_id: int, payload: ExportRequest):
             "Try again in a moment.",
         )
 
-    out_path = Path(payload.output_path) if payload.output_path else src.with_name(f"{src.stem}_edited{src.suffix}")
-    if not out_path.parent.is_dir():
-        raise HTTPException(400, f"output folder does not exist: {out_path.parent}")
+    if payload.output_path:
+        out_path = Path(payload.output_path)
+    else:
+        out_path = src.parent / "edited" / f"{src.stem}_edited{src.suffix}"
+
+    try:
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise HTTPException(400, f"couldn't create output folder {out_path.parent}: {exc}")
 
     filter_complex, output_maps = _build_filter_complex(segments, payload.resolution)
     total_duration = sum(seg["end_time"] - seg["start_time"] for seg in segments)
