@@ -8,8 +8,10 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.db import init_db
+from app.ffmpeg_setup import ensure_ffmpeg_ready, get_status as get_ffmpeg_status
 from app.lifecycle import record_heartbeat, request_shutdown, watch_inactivity
 from app.routes import export, segments, videos
+from app.schemas import FfmpegStatus
 
 if getattr(sys, "frozen", False):
     # Running as a PyInstaller-packaged executable: the built frontend is
@@ -23,6 +25,7 @@ else:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    ensure_ffmpeg_ready()  # non-blocking: downloads in the background if needed
     watcher = asyncio.create_task(watch_inactivity())
     try:
         yield
@@ -52,6 +55,11 @@ def heartbeat():
 def shutdown():
     request_shutdown()
     return JSONResponse({"ok": True})
+
+
+@app.get("/api/ffmpeg/status", response_model=FfmpegStatus)
+def ffmpeg_status():
+    return get_ffmpeg_status()
 
 
 if FRONTEND_DIST.is_dir():

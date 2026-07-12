@@ -41,6 +41,21 @@ export interface Segment {
   created_at: string;
 }
 
+export type Resolution = "1080p" | "720p" | "original";
+
+export interface ExportJobStatus {
+  state: "idle" | "running" | "succeeded" | "failed";
+  progress: number | null;
+  output_path: string | null;
+  error: string | null;
+}
+
+export interface FfmpegStatus {
+  state: "checking" | "downloading" | "ready" | "error";
+  message: string;
+  progress: number | null;
+}
+
 export const api = {
   listVideos: () => request<Video[]>("/videos"),
 
@@ -78,8 +93,15 @@ export const api = {
 
   listTags: () => request<string[]>("/tags"),
 
-  exportVideo: (videoId: number) =>
-    request<{ output_path: string }>(`/videos/${videoId}/export`, { method: "POST" }),
+  startExport: (videoId: number, options: { output_path?: string | null; resolution: Resolution }) =>
+    request<ExportJobStatus>(`/videos/${videoId}/export`, {
+      method: "POST",
+      body: JSON.stringify(options),
+    }),
+
+  getExportStatus: (videoId: number) => request<ExportJobStatus>(`/videos/${videoId}/export/status`),
+
+  getFfmpegStatus: () => request<FfmpegStatus>("/ffmpeg/status"),
 };
 
 export function videoStreamUrl(videoId: number): string {

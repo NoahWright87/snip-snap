@@ -17,3 +17,12 @@ HEARTBEAT_TIMEOUT_SECONDS = int(os.environ.get("SNIPSNAP_HEARTBEAT_TIMEOUT", "18
 INACTIVITY_CHECK_INTERVAL_SECONDS = 15
 
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v"}
+
+# GPL build (not LGPL) so libx264 is included - a much better H.264 encoder
+# than what's left once GPL-licensed codecs are stripped out, and quality
+# actually matters for a video editor. Downloaded on first run rather than
+# bundled, so the app itself stays a small download.
+FFMPEG_DOWNLOAD_URL = os.environ.get(
+    "SNIPSNAP_FFMPEG_URL",
+    "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip",
+)

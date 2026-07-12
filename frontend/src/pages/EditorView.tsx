@@ -1,7 +1,7 @@
-import { Button, Card, Pill, Text } from "@noahwright/design";
+import { Button, Card, Pill, Select, Text } from "@noahwright/design";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { api, Segment, Video, videoStreamUrl } from "../api";
+import { api, ExportJobStatus, Resolution, Segment, Video, videoStreamUrl } from "../api";
 import Timeline from "../components/Timeline";
 
 function formatTime(seconds: number): string {
@@ -24,7 +24,9 @@ export default function EditorView() {
   const [pendingEnd, setPendingEnd] = useState<number | null>(null);
   const [tag, setTag] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [exportResult, setExportResult] = useState<string | null>(null);
+  const [outputPath, setOutputPath] = useState("");
+  const [resolution, setResolution] = useState<Resolution>("1080p");
+  const [exportJob, setExportJob] = useState<ExportJobStatus | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -101,12 +103,32 @@ export default function EditorView() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [setIn, setOut, saveSegment]);
 
+  // Pick up an in-progress or already-finished export when arriving at/
+  // returning to this view, so navigating away mid-export doesn't lose it.
+  useEffect(() => {
+    api.getExportStatus(videoId).then(setExportJob).catch(() => {});
+  }, [videoId]);
+
+  // Poll while an export is running.
+  useEffect(() => {
+    if (exportJob?.state !== "running") return;
+    const timer = window.setTimeout(async () => {
+      try {
+        setExportJob(await api.getExportStatus(videoId));
+      } catch (err) {
+        setError(String(err));
+      }
+    }, 1000);
+    return () => window.clearTimeout(timer);
+  }, [exportJob, videoId]);
+
   async function handleExport() {
-    setExportResult(null);
     try {
-      const result = await api.exportVideo(videoId);
-      setExportResult(result.output_path);
-      await refresh();
+      const job = await api.startExport(videoId, {
+        output_path: outputPath.trim() || null,
+        resolution,
+      });
+      setExportJob(job);
     } catch (err) {
       setError(String(err));
     }
@@ -216,10 +238,51 @@ export default function EditorView() {
         ))}
       </Card>
 
-      <div style={{ marginTop: "1rem", display: "flex", gap: "0.75rem", alignItems: "center" }}>
-        <Button onClick={handleExport}>Export edited video</Button>
-        {exportResult && <Text>Exported to {exportResult}</Text>}
-      </div>
+      <Card title="Export" style={{ marginTop: "1rem" }}>
+        <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "flex-end" }}>
+          <div style={{ flex: "1 1 260px" }}>
+            <label style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.25rem" }}>
+              Output path (optional)
+            </label>
+            <input
+              placeholder="(default: next to source, adds _edited)"
+              value={outputPath}
+              onChange={(e) => setOutputPath(e.target.value)}
+              style={{
+                width: "100%",
+                padding: "0.4rem 0.6rem",
+                borderRadius: 6,
+                border: "1px solid #ccc",
+                boxSizing: "border-box",
+              }}
+            />
+          </div>
+
+          <Select
+            label="Resolution"
+            value={resolution}
+            onChange={(e) => setResolution(e.target.value as Resolution)}
+          >
+            <option value="1080p">1080p (recommended)</option>
+            <option value="720p">720p</option>
+            <option value="original">Original resolution</option>
+          </Select>
+
+          <Button onClick={handleExport} disabled={exportJob?.state === "running"}>
+            {exportJob?.state === "running" ? "Exporting…" : "Export edited video"}
+          </Button>
+        </div>
+
+        <div style={{ marginTop: "0.5rem" }}>
+          {exportJob?.state === "running" && (
+            <Text>
+              Exporting{exportJob.progress != null ? ` — ${Math.round(exportJob.progress * 100)}%` : "…"}
+            </Text>
+          )}
+          {exportJob?.state === "succeeded" && <Text>✅ Exported to {exportJob.output_path}</Text>}
+          {exportJob?.state === "failed" && <Text tone="error">❌ Export failed: {exportJob.error}</Text>}
+        </div>
+      </Card>
     </div>
   );
 }

@@ -59,5 +59,22 @@ class SegmentUpdate(BaseModel):
     tag: Optional[str] = None
 
 
-class ExportResponse(BaseModel):
-    output_path: str
+Resolution = Literal["1080p", "720p", "original"]
+
+
+class ExportRequest(BaseModel):
+    output_path: Optional[str] = None
+    resolution: Resolution = "1080p"
+
+
+class ExportJobStatus(BaseModel):
+    state: Literal["idle", "running", "succeeded", "failed"]
+    progress: Optional[float] = None
+    output_path: Optional[str] = None
+    error: Optional[str] = None
+
+
+class FfmpegStatus(BaseModel):
+    state: Literal["checking", "downloading", "ready", "error"]
+    message: str = ""
+    progress: Optional[float] = None

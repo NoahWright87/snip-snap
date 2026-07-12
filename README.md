@@ -14,9 +14,10 @@ not built yet.
 
 - Python 3.11+
 - Node.js 18+ (only needed to build the frontend)
-- [ffmpeg](https://ffmpeg.org/download.html) on your `PATH` (used to read
-  video durations and to export the trimmed file). Not preinstalled on
-  Windows — download a build and add its `bin` folder to your PATH.
+- ffmpeg. On Windows, the app downloads and caches this itself on first run
+  (see "ffmpeg setup" below) — nothing to install manually. On macOS/Linux
+  (dev use only; the packaged app targets Windows), install it yourself and
+  make sure it's on your `PATH`.
 
 ## Setup
 
@@ -51,6 +52,16 @@ The backend shuts itself down automatically if the browser tab closes (or
 crashes and stops sending its heartbeat), so you won't end up with orphaned
 backend processes piling up across sessions.
 
+### ffmpeg setup
+
+On Windows, if ffmpeg isn't already available, the app downloads a build in
+the background on first launch and caches it in `~/.snip-snap/ffmpeg_bin/`
+(one-time; later launches and later versions of the app reuse it). A banner
+at the top of the UI shows progress — you can keep marking cuts/keeps while
+it downloads, export just waits until it's ready. Check
+`GET /api/ffmpeg/status` directly, or `~/.snip-snap/logs/snip-snap.log` in
+the packaged build, if something seems stuck.
+
 ### Frontend development
 
 For live-reloading frontend changes instead of rebuilding on every edit, run
@@ -81,12 +92,12 @@ pytest
 
 Every PR that touches `backend/` or `frontend/` gets a Windows preview build
 via GitHub Actions (`.github/workflows/preview-build.yml`): a single
-`snip-snap.exe` with the frontend *and ffmpeg* baked in — nothing else to
-install to try it. The PR itself gets a comment with a direct download link
-once the build finishes (or a link to the log if it fails); the artifact is
-also always reachable under the PR's checks: **Checks tab → "Preview Build
-(Windows)" → Summary → Artifacts**. Download and unzip
-`snip-snap-preview-pr<N>`, then double-click `snip-snap.exe` — no console
-window, no browser tab, just an app window. Windows SmartScreen will likely
-warn since it's unsigned — that's expected for an unsigned build, click "More
-info" → "Run anyway". See the bundled `README.txt` for details.
+`snip-snap.exe` with the frontend baked in (ffmpeg downloads itself on first
+run - see above - so the artifact stays small). The PR itself gets a comment
+with a direct download link once the build finishes (or a link to the log if
+it fails); the artifact is also always reachable under the PR's checks:
+**Checks tab → "Preview Build (Windows)" → Summary → Artifacts**. Download
+and unzip `snip-snap-preview-pr<N>`, then double-click `snip-snap.exe` — no
+console window, no browser tab, just an app window. Windows SmartScreen will
+likely warn since it's unsigned — that's expected for an unsigned build,
+click "More info" → "Run anyway". See the bundled `README.txt` for details.
