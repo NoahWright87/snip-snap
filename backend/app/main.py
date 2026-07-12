@@ -1,4 +1,5 @@
 import asyncio
+import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -10,7 +11,13 @@ from app.db import init_db
 from app.lifecycle import record_heartbeat, request_shutdown, watch_inactivity
 from app.routes import export, segments, videos
 
-FRONTEND_DIST = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
+if getattr(sys, "frozen", False):
+    # Running as a PyInstaller-packaged executable: the built frontend is
+    # bundled alongside the interpreter in the extracted temp dir, not on
+    # disk relative to this source file.
+    FRONTEND_DIST = Path(sys._MEIPASS) / "frontend_dist"  # type: ignore[attr-defined]
+else:
+    FRONTEND_DIST = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
 
 
 @asynccontextmanager

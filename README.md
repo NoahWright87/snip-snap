@@ -75,3 +75,16 @@ environment variable).
 cd backend
 pytest
 ```
+
+## Trying a pull request without setting up a dev environment
+
+Every PR that touches `backend/` or `frontend/` gets a Windows preview build
+via GitHub Actions (`.github/workflows/preview-build.yml`): a single
+`snip-snap.exe` with the frontend baked in, no Python/Node install required
+to try it. Find it under the PR's checks: **Checks tab → "Preview Build
+(Windows)" → Summary → Artifacts**, download and unzip
+`snip-snap-preview-pr<N>`, then double-click `snip-snap.exe`. Windows
+SmartScreen will likely warn since it's unsigned — that's expected for an
+unsigned build, click "More info" → "Run anyway". See the bundled
+`README.txt` for details. ffmpeg still needs to be installed separately, the
+same as running from source.

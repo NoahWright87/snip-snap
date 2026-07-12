@@ -12,5 +12,11 @@ backend/tests/_tmp_data/
 frontend/node_modules/
 frontend/dist/
 
+# PyInstaller packaging output
+backend/build/
+backend/dist/
+backend/preview/
+backend/*.spec
+
 # OS
 .DS_Store
