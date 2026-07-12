@@ -3,13 +3,15 @@ import subprocess
 from pathlib import Path
 from typing import Optional
 
+from app.ffmpeg_locate import ffprobe_path
+
 
 def probe_duration(path: Path) -> Optional[float]:
     """Return a video's duration in seconds via ffprobe, or None if unavailable."""
     try:
         result = subprocess.run(
             [
-                "ffprobe",
+                ffprobe_path(),
                 "-v", "error",
                 "-show_entries", "format=duration",
                 "-of", "json",

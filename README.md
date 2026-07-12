@@ -41,10 +41,11 @@ cd backend
 python launcher.py
 ```
 
-This starts the backend on `http://127.0.0.1:8756` and opens it in your
-browser automatically. If it's already running (e.g. you double-clicked the
-launcher twice), it just opens/reuses the existing window instead of starting
-a second backend.
+This starts the backend on `http://127.0.0.1:8756` and opens it automatically
+in a standalone window (Chrome/Edge "app mode" if either is installed - no
+address bar or tabs; otherwise a normal browser tab as a fallback). If it's
+already running (e.g. you double-clicked the launcher twice), it just
+opens/reuses the existing window instead of starting a second backend.
 
 The backend shuts itself down automatically if the browser tab closes (or
 crashes and stops sending its heartbeat), so you won't end up with orphaned
@@ -80,11 +81,12 @@ pytest
 
 Every PR that touches `backend/` or `frontend/` gets a Windows preview build
 via GitHub Actions (`.github/workflows/preview-build.yml`): a single
-`snip-snap.exe` with the frontend baked in, no Python/Node install required
-to try it. Find it under the PR's checks: **Checks tab → "Preview Build
-(Windows)" → Summary → Artifacts**, download and unzip
-`snip-snap-preview-pr<N>`, then double-click `snip-snap.exe`. Windows
-SmartScreen will likely warn since it's unsigned — that's expected for an
-unsigned build, click "More info" → "Run anyway". See the bundled
-`README.txt` for details. ffmpeg still needs to be installed separately, the
-same as running from source.
+`snip-snap.exe` with the frontend *and ffmpeg* baked in — nothing else to
+install to try it. The PR itself gets a comment with a direct download link
+once the build finishes (or a link to the log if it fails); the artifact is
+also always reachable under the PR's checks: **Checks tab → "Preview Build
+(Windows)" → Summary → Artifacts**. Download and unzip
+`snip-snap-preview-pr<N>`, then double-click `snip-snap.exe` — no console
+window, no browser tab, just an app window. Windows SmartScreen will likely
+warn since it's unsigned — that's expected for an unsigned build, click "More
+info" → "Run anyway". See the bundled `README.txt` for details.

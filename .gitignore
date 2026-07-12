@@ -17,6 +17,9 @@ backend/build/
 backend/dist/
 backend/preview/
 backend/*.spec
+backend/ffmpeg_bin/
+backend/ffmpeg.zip
+backend/ffmpeg-extracted/
 
 # OS
 .DS_Store

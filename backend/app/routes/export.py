@@ -4,6 +4,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException
 
 from app.db import get_db
+from app.ffmpeg_locate import ffmpeg_path
 from app.routes.videos import get_video_row_or_404
 from app.schemas import ExportResponse
 
@@ -48,7 +49,7 @@ def export_video(video_id: int):
     out_path = src.with_name(f"{src.stem}_edited{src.suffix}")
     filter_complex, output_maps = _build_filter_complex(segments)
 
-    cmd = ["ffmpeg", "-y", "-i", str(src), "-filter_complex", filter_complex]
+    cmd = [ffmpeg_path(), "-y", "-i", str(src), "-filter_complex", filter_complex]
     for m in output_maps:
         cmd += ["-map", m]
     cmd.append(str(out_path))
