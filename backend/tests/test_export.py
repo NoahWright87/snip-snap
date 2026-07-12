@@ -1,7 +1,4 @@
-import os
-import stat
 import time
-from pathlib import Path
 
 
 def _make_video(client, tmp_path, name="clip.mp4"):
@@ -13,39 +10,27 @@ def _make_video(client, tmp_path, name="clip.mp4"):
     return videos[name]["id"]
 
 
-def _write_fake_ffmpeg(tmp_path: Path, *, exit_code: int = 0, delay: float = 0.0) -> str:
-    """A stand-in for ffmpeg that speaks just enough of the -progress
-    protocol to exercise our progress parsing, without needing a real
-    ffmpeg binary in the test environment."""
-    script = tmp_path / "fake-ffmpeg.sh"
-    script.write_text(
-        f"""#!/bin/sh
-for arg; do :; done  # $arg ends up holding the last positional (output path)
-echo "out_time_ms=500000"
-sleep {delay}
-echo "out_time_ms=1000000"
-echo "progress=end"
-if [ {exit_code} -eq 0 ]; then
-  touch "$arg"
-else
-  echo "fake ffmpeg exploded" >&2
-fi
-exit {exit_code}
-"""
-    )
-    script.chmod(script.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
-    return str(script)
+class _FakePopen:
+    """Stands in for subprocess.Popen so export tests don't need a real,
+    platform-specific ffmpeg binary to exercise the progress-parsing and
+    job-state-machine logic (a real shell/batch script stand-in isn't
+    portable: Windows can't directly exec a #!/bin/sh script)."""
+
+    def __init__(self, stdout_lines=(), returncode=0, stderr_lines=()):
+        self.stdout = iter(stdout_lines)
+        self.stderr = iter(stderr_lines)
+        self.returncode = returncode
+
+    def wait(self):
+        return self.returncode
 
 
-def _poll_until_done(client, video_id, timeout=5):
-    deadline = time.time() + timeout
-    status = None
-    while time.time() < deadline:
-        status = client.get(f"/api/videos/{video_id}/export/status").json()
-        if status["state"] not in ("idle", "running"):
-            return status
-        time.sleep(0.05)
-    return status
+def _progress_lines(delay=0.0):
+    yield "out_time_ms=500000\n"
+    if delay:
+        time.sleep(delay)
+    yield "out_time_ms=1000000\n"
+    yield "progress=end\n"
 
 
 def test_export_rejects_no_kept_segments(client, tmp_path):
@@ -73,14 +58,28 @@ def test_export_reports_ffmpeg_not_ready(client, tmp_path, monkeypatch):
     assert "ffmpeg isn't ready" in resp.json()["detail"]
 
 
+def _poll_until_done(client, video_id, timeout=5):
+    deadline = time.time() + timeout
+    status = None
+    while time.time() < deadline:
+        status = client.get(f"/api/videos/{video_id}/export/status").json()
+        if status["state"] not in ("idle", "running"):
+            return status
+        time.sleep(0.05)
+    return status
+
+
 def test_export_runs_in_background_and_reports_progress(client, tmp_path, monkeypatch):
     video_id = _make_video(client, tmp_path)
     client.post(
         f"/api/videos/{video_id}/segments",
         json={"start_time": 0, "end_time": 2, "decision": "keep"},
     )
-    fake_ffmpeg = _write_fake_ffmpeg(tmp_path)
-    monkeypatch.setattr("app.routes.export.ffmpeg_path", lambda: fake_ffmpeg)
+    monkeypatch.setattr("app.routes.export.ffmpeg_path", lambda: "fake-ffmpeg")
+    monkeypatch.setattr(
+        "app.routes.export.popen_hidden",
+        lambda cmd, **kw: _FakePopen(stdout_lines=_progress_lines()),
+    )
 
     resp = client.post(f"/api/videos/{video_id}/export", json={})
     assert resp.status_code == 202
@@ -89,7 +88,7 @@ def test_export_runs_in_background_and_reports_progress(client, tmp_path, monkey
     status = _poll_until_done(client, video_id)
     assert status["state"] == "succeeded"
     assert status["progress"] == 1.0
-    assert os.path.exists(status["output_path"])
+    assert status["output_path"]
 
 
 def test_export_reports_failure(client, tmp_path, monkeypatch):
@@ -98,8 +97,13 @@ def test_export_reports_failure(client, tmp_path, monkeypatch):
         f"/api/videos/{video_id}/segments",
         json={"start_time": 0, "end_time": 1, "decision": "keep"},
     )
-    fake_ffmpeg = _write_fake_ffmpeg(tmp_path, exit_code=1)
-    monkeypatch.setattr("app.routes.export.ffmpeg_path", lambda: fake_ffmpeg)
+    monkeypatch.setattr("app.routes.export.ffmpeg_path", lambda: "fake-ffmpeg")
+    monkeypatch.setattr(
+        "app.routes.export.popen_hidden",
+        lambda cmd, **kw: _FakePopen(
+            stdout_lines=_progress_lines(), returncode=1, stderr_lines=["fake ffmpeg exploded\n"]
+        ),
+    )
 
     client.post(f"/api/videos/{video_id}/export", json={})
     status = _poll_until_done(client, video_id)
@@ -114,8 +118,11 @@ def test_export_rejects_concurrent_runs(client, tmp_path, monkeypatch):
         f"/api/videos/{video_id}/segments",
         json={"start_time": 0, "end_time": 1, "decision": "keep"},
     )
-    fake_ffmpeg = _write_fake_ffmpeg(tmp_path, delay=0.5)
-    monkeypatch.setattr("app.routes.export.ffmpeg_path", lambda: fake_ffmpeg)
+    monkeypatch.setattr("app.routes.export.ffmpeg_path", lambda: "fake-ffmpeg")
+    monkeypatch.setattr(
+        "app.routes.export.popen_hidden",
+        lambda cmd, **kw: _FakePopen(stdout_lines=_progress_lines(delay=0.5)),
+    )
 
     first = client.post(f"/api/videos/{video_id}/export", json={})
     assert first.status_code == 202
@@ -132,8 +139,11 @@ def test_export_custom_resolution_and_output_path(client, tmp_path, monkeypatch)
         f"/api/videos/{video_id}/segments",
         json={"start_time": 0, "end_time": 1, "decision": "keep"},
     )
-    fake_ffmpeg = _write_fake_ffmpeg(tmp_path)
-    monkeypatch.setattr("app.routes.export.ffmpeg_path", lambda: fake_ffmpeg)
+    monkeypatch.setattr("app.routes.export.ffmpeg_path", lambda: "fake-ffmpeg")
+    monkeypatch.setattr(
+        "app.routes.export.popen_hidden",
+        lambda cmd, **kw: _FakePopen(stdout_lines=_progress_lines()),
+    )
 
     out_dir = tmp_path / "exports"
     out_dir.mkdir()
@@ -156,11 +166,24 @@ def test_export_rejects_output_path_with_missing_folder(client, tmp_path, monkey
         f"/api/videos/{video_id}/segments",
         json={"start_time": 0, "end_time": 1, "decision": "keep"},
     )
-    fake_ffmpeg = _write_fake_ffmpeg(tmp_path)
-    monkeypatch.setattr("app.routes.export.ffmpeg_path", lambda: fake_ffmpeg)
+    monkeypatch.setattr("app.routes.export.ffmpeg_path", lambda: "fake-ffmpeg")
 
     resp = client.post(
         f"/api/videos/{video_id}/export",
         json={"output_path": str(tmp_path / "nope" / "out.mp4")},
     )
     assert resp.status_code == 400
+
+
+def test_build_filter_complex_applies_resolution_cap(client, tmp_path):
+    from app.routes.export import _build_filter_complex
+
+    segments = [{"start_time": 0, "end_time": 1}]
+
+    filter_complex, output_maps = _build_filter_complex(segments, "1080p")
+    assert "scale=-2:'min(1080,ih)'" in filter_complex
+    assert output_maps == ["[scaledv]", "[outa]"]
+
+    filter_complex, output_maps = _build_filter_complex(segments, "original")
+    assert "scale=" not in filter_complex
+    assert output_maps == ["[outv]", "[outa]"]
