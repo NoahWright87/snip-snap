@@ -1,19 +1,22 @@
-import { useCallback, useRef } from "react";
+import { useCallback, useRef, useState } from "react";
 import { Segment } from "../api";
 
 interface TimelineProps {
   duration: number;
   currentTime: number;
   segments: Segment[];
-  selectedSegmentId: number | null;
-  onSelectSegment: (segmentId: number) => void;
+  selectedSegmentId: string | null;
+  onSelectSegment: (segmentId: string) => void;
   onSeek: (time: number) => void;
   onSnip: () => void;
+  onRemoveBoundary: (time: number) => void;
 }
 
 const KEEP_COLOR = "var(--secondary-background, #dbe2ea)";
 const CUT_COLOR = "var(--danger, #dc2626)";
 const HANDLE_SIZE = 16;
+const TRACK_HEIGHT = 40;
+const BOUNDARY_HIT_WIDTH = 14;
 
 export default function Timeline({
   duration,
@@ -23,9 +26,12 @@ export default function Timeline({
   onSelectSegment,
   onSeek,
   onSnip,
+  onRemoveBoundary,
 }: TimelineProps) {
   const trackRef = useRef<HTMLDivElement>(null);
   const dragging = useRef(false);
+  const [hoveredBoundary, setHoveredBoundary] = useState<string | null>(null);
+  const [armedBoundary, setArmedBoundary] = useState<string | null>(null);
 
   const timeFromClientX = useCallback(
     (clientX: number): number => {
@@ -60,6 +66,7 @@ export default function Timeline({
   );
 
   const pct = (t: number) => (duration > 0 ? `${(t / duration) * 100}%` : "0%");
+  const boundaries = segments.slice(0, -1);
 
   return (
     <div style={{ position: "relative", paddingTop: HANDLE_SIZE + 4, paddingBottom: 36 }}>
@@ -67,7 +74,7 @@ export default function Timeline({
         ref={trackRef}
         style={{
           position: "relative",
-          height: 40,
+          height: TRACK_HEIGHT,
           borderRadius: 6,
           background: KEEP_COLOR,
           overflow: "hidden",
@@ -76,7 +83,10 @@ export default function Timeline({
         {segments.map((seg) => (
           <div
             key={seg.id}
-            onClick={() => onSelectSegment(seg.id)}
+            onClick={() => {
+              setArmedBoundary(null);
+              onSelectSegment(seg.id);
+            }}
             title={seg.tags.length ? seg.tags.join(", ") : undefined}
             style={{
               position: "absolute",
@@ -92,33 +102,80 @@ export default function Timeline({
             }}
           />
         ))}
+      </div>
 
-        {/* Dashed line at each split boundary - needed even when adjacent
-            segments share the same color, since that's the only visual cue
-            a split happened there. */}
-        {segments.slice(0, -1).map((seg) => (
+      {/* Split boundaries live outside the (overflow: hidden) track so their
+          "click again to remove" tooltip isn't clipped. Needed even when
+          adjacent segments share a color, since that's the only visual cue
+          a split happened there. */}
+      {boundaries.map((seg) => {
+        const isHot = hoveredBoundary === seg.id || armedBoundary === seg.id;
+        return (
           <div
             key={`boundary-${seg.id}`}
+            onMouseEnter={() => setHoveredBoundary(seg.id)}
+            onMouseLeave={() => setHoveredBoundary((h) => (h === seg.id ? null : h))}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (armedBoundary === seg.id) {
+                onRemoveBoundary(seg.end_time);
+                setArmedBoundary(null);
+              } else {
+                setArmedBoundary(seg.id);
+              }
+            }}
             style={{
               position: "absolute",
               left: pct(seg.end_time),
-              top: 0,
-              bottom: 0,
-              width: 0,
-              borderLeft: "2px dashed rgba(0,0,0,0.4)",
-              pointerEvents: "none",
+              top: HANDLE_SIZE + 4,
+              height: TRACK_HEIGHT,
+              width: BOUNDARY_HIT_WIDTH,
+              transform: "translateX(-50%)",
+              cursor: "pointer",
+              zIndex: 2,
             }}
-          />
-        ))}
-      </div>
+          >
+            <div
+              style={{
+                position: "absolute",
+                left: "50%",
+                top: 0,
+                bottom: 0,
+                width: 0,
+                borderLeft: `2px ${isHot ? "solid" : "dashed"} ${isHot ? "#eab308" : "rgba(0,0,0,0.4)"}`,
+                boxShadow: isHot ? "0 0 0 3px rgba(234,179,8,0.35)" : "none",
+              }}
+            />
+            {armedBoundary === seg.id && (
+              <div
+                style={{
+                  position: "absolute",
+                  bottom: "100%",
+                  left: "50%",
+                  transform: "translateX(-50%)",
+                  marginBottom: 4,
+                  padding: "0.25rem 0.5rem",
+                  background: "#111",
+                  color: "#fff",
+                  fontSize: "0.75rem",
+                  borderRadius: 4,
+                  whiteSpace: "nowrap",
+                }}
+              >
+                click again to remove
+              </div>
+            )}
+          </div>
+        );
+      })}
 
       {/* Playhead: line through the track plus a draggable handle above it. */}
       <div
         style={{
           position: "absolute",
           left: pct(currentTime),
-          top: 0,
-          bottom: 0,
+          top: HANDLE_SIZE + 4,
+          height: TRACK_HEIGHT,
           width: 2,
           background: "var(--foreground, #111)",
           pointerEvents: "none",
@@ -153,7 +210,7 @@ export default function Timeline({
         style={{
           position: "absolute",
           left: pct(currentTime),
-          top: HANDLE_SIZE + 4 + 40 + 4,
+          top: HANDLE_SIZE + 4 + TRACK_HEIGHT + 4,
           transform: "translateX(-50%)",
           width: 28,
           height: 28,

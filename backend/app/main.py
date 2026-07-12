@@ -3,15 +3,16 @@ import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.db import init_db
 from app.ffmpeg_setup import ensure_ffmpeg_ready, get_status as get_ffmpeg_status
 from app.lifecycle import record_heartbeat, request_shutdown, watch_inactivity
+from app.open_file import open_file
 from app.routes import dialogs, export, segments, videos
-from app.schemas import FfmpegStatus
+from app.schemas import FfmpegStatus, OpenFileRequest
 
 if getattr(sys, "frozen", False):
     # Running as a PyInstaller-packaged executable: the built frontend is
@@ -61,6 +62,17 @@ def shutdown():
 @app.get("/api/ffmpeg/status", response_model=FfmpegStatus)
 def ffmpeg_status():
     return get_ffmpeg_status()
+
+
+@app.post("/api/open-file")
+def open_file_endpoint(payload: OpenFileRequest):
+    if not Path(payload.path).exists():
+        raise HTTPException(404, "file not found")
+    try:
+        open_file(payload.path)
+    except Exception as exc:  # noqa: BLE001 - report any failure to the UI
+        raise HTTPException(500, f"couldn't open file: {exc}")
+    return {"ok": True}
 
 
 if FRONTEND_DIST.is_dir():

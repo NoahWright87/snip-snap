@@ -6,6 +6,8 @@ import SegmentEditorPanel from "../components/SegmentEditorPanel";
 import Timeline from "../components/Timeline";
 import TransportBar from "../components/TransportBar";
 
+const UNDO_LIMIT = 25;
+
 function dirOf(path: string): string {
   const idx = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
   return idx >= 0 ? path.slice(0, idx) : "";
@@ -16,9 +18,36 @@ function defaultExportFilename(filename: string): string {
   return dot >= 0 ? `${filename.slice(0, dot)}_edited${filename.slice(dot)}` : `${filename}_edited`;
 }
 
+function flashTitle(message: string) {
+  const original = document.title;
+  let showingMessage = false;
+  const interval = window.setInterval(() => {
+    document.title = showingMessage ? original : `🎬 ${message}`;
+    showingMessage = !showingMessage;
+  }, 1000);
+  function stop() {
+    window.clearInterval(interval);
+    document.title = original;
+    window.removeEventListener("focus", stop);
+  }
+  window.addEventListener("focus", stop);
+}
+
+function notifyExportFinished(job: ExportJobStatus) {
+  const title = job.state === "succeeded" ? "Export complete" : "Export failed";
+  const body = job.state === "succeeded" ? `Saved to ${job.output_path}` : job.error ?? undefined;
+
+  if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+    new Notification(title, { body });
+  }
+  if (document.hidden || !document.hasFocus()) {
+    flashTitle(title);
+  }
+}
+
 export default function EditorView() {
   const { id } = useParams();
-  const videoId = Number(id);
+  const videoId = id as string;
   const navigate = useNavigate();
   const videoRef = useRef<HTMLVideoElement>(null);
   const initTriggered = useRef(false);
@@ -28,11 +57,13 @@ export default function EditorView() {
   const [existingTags, setExistingTags] = useState<string[]>([]);
   const [currentTime, setCurrentTime] = useState(0);
   const [playing, setPlaying] = useState(false);
-  const [selectedSegmentId, setSelectedSegmentId] = useState<number | null>(null);
+  const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [outputPath, setOutputPath] = useState("");
   const [resolution, setResolution] = useState<Resolution>("1080p");
   const [exportJob, setExportJob] = useState<ExportJobStatus | null>(null);
+  const [undoStack, setUndoStack] = useState<Segment[][]>([]);
+  const [redoStack, setRedoStack] = useState<Segment[][]>([]);
 
   const refreshSegmentsAndTags = useCallback(async () => {
     try {
@@ -67,7 +98,11 @@ export default function EditorView() {
     if (exportJob?.state !== "running") return;
     const timer = window.setTimeout(async () => {
       try {
-        setExportJob(await api.getExportStatus(videoId));
+        const next = await api.getExportStatus(videoId);
+        setExportJob(next);
+        if (next.state === "succeeded" || next.state === "failed") {
+          notifyExportFinished(next);
+        }
       } catch (err) {
         setError(String(err));
       }
@@ -113,8 +148,49 @@ export default function EditorView() {
     else el.pause();
   }
 
+  function pushUndo() {
+    setUndoStack((stack) => [...stack.slice(-(UNDO_LIMIT - 1)), segments]);
+    setRedoStack([]);
+  }
+
+  async function restoreSnapshot(snapshot: Segment[]) {
+    try {
+      setSegments(
+        await api.replaceSegments(
+          videoId,
+          snapshot.map(({ start_time, end_time, decision, tags }) => ({
+            start_time,
+            end_time,
+            decision,
+            tags,
+          })),
+        ),
+      );
+      setSelectedSegmentId(null);
+    } catch (err) {
+      setError(String(err));
+    }
+  }
+
+  async function handleUndo() {
+    if (undoStack.length === 0) return;
+    const previous = undoStack[undoStack.length - 1];
+    setUndoStack((s) => s.slice(0, -1));
+    setRedoStack((r) => [...r.slice(-(UNDO_LIMIT - 1)), segments]);
+    await restoreSnapshot(previous);
+  }
+
+  async function handleRedo() {
+    if (redoStack.length === 0) return;
+    const next = redoStack[redoStack.length - 1];
+    setRedoStack((r) => r.slice(0, -1));
+    setUndoStack((s) => [...s.slice(-(UNDO_LIMIT - 1)), segments]);
+    await restoreSnapshot(next);
+  }
+
   async function handleSnip() {
     if (duration <= 0) return;
+    pushUndo();
     try {
       setSegments(await api.splitSegment(videoId, currentTime, duration));
       setSelectedSegmentId(null);
@@ -123,8 +199,19 @@ export default function EditorView() {
     }
   }
 
+  async function handleRemoveBoundary(time: number) {
+    pushUndo();
+    try {
+      setSegments(await api.mergeSegments(videoId, time));
+      setSelectedSegmentId(null);
+    } catch (err) {
+      setError(String(err));
+    }
+  }
+
   async function handleToggleDelete() {
     if (!selectedSegment) return;
+    pushUndo();
     try {
       await api.updateSegment(selectedSegment.id, {
         decision: selectedSegment.decision === "cut" ? "keep" : "cut",
@@ -137,6 +224,7 @@ export default function EditorView() {
 
   async function handleAddTag(tag: string) {
     if (!selectedSegment) return;
+    pushUndo();
     try {
       await api.addTag(selectedSegment.id, tag);
       await refreshSegmentsAndTags();
@@ -147,6 +235,7 @@ export default function EditorView() {
 
   async function handleRemoveTag(tag: string) {
     if (!selectedSegment) return;
+    pushUndo();
     try {
       await api.removeTag(selectedSegment.id, tag);
       await refreshSegmentsAndTags();
@@ -155,23 +244,31 @@ export default function EditorView() {
     }
   }
 
-  // Space plays/pauses, Delete toggles the selected clip's delete state.
-  // Ignored while typing in a text field (including the tag combobox).
+  // Space plays/pauses, Delete toggles the selected clip's delete state,
+  // Ctrl/Cmd+Z undoes, Ctrl/Cmd+Shift+Z (or Ctrl+Y) redoes. Ignored while
+  // typing in a text field (including the tag combobox).
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       const target = e.target as HTMLElement;
       if (target.tagName === "INPUT" || target.tagName === "TEXTAREA") return;
+      const mod = e.ctrlKey || e.metaKey;
       if (e.key === " ") {
         e.preventDefault();
         togglePlay();
       } else if (e.key === "Delete") {
         handleToggleDelete();
+      } else if (mod && !e.shiftKey && e.key.toLowerCase() === "z") {
+        e.preventDefault();
+        handleUndo();
+      } else if (mod && (e.key.toLowerCase() === "y" || (e.shiftKey && e.key.toLowerCase() === "z"))) {
+        e.preventDefault();
+        handleRedo();
       }
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedSegment]);
+  }, [selectedSegment, undoStack, redoStack, segments]);
 
   async function handleBrowseOutputPath() {
     try {
@@ -185,12 +282,24 @@ export default function EditorView() {
   }
 
   async function handleExport() {
+    if (typeof Notification !== "undefined" && Notification.permission === "default") {
+      Notification.requestPermission();
+    }
     try {
       const job = await api.startExport(videoId, {
         output_path: outputPath.trim() || null,
         resolution,
       });
       setExportJob(job);
+    } catch (err) {
+      setError(String(err));
+    }
+  }
+
+  async function handleOpenExportedFile() {
+    if (!exportJob?.output_path) return;
+    try {
+      await api.openFile(exportJob.output_path);
     } catch (err) {
       setError(String(err));
     }
@@ -222,8 +331,16 @@ export default function EditorView() {
         onPause={() => setPlaying(false)}
       />
 
-      <div style={{ margin: "0.75rem 0" }}>
+      <div style={{ margin: "0.75rem 0", display: "flex", justifyContent: "center", gap: "1rem" }}>
         <TransportBar playing={playing} onTogglePlay={togglePlay} onStep={(d) => seekTo(currentTime + d)} />
+        <div style={{ display: "flex", gap: "0.4rem" }}>
+          <Button variant="outline" size="small" onClick={handleUndo} disabled={undoStack.length === 0}>
+            ↶ Undo
+          </Button>
+          <Button variant="outline" size="small" onClick={handleRedo} disabled={redoStack.length === 0}>
+            ↷ Redo
+          </Button>
+        </div>
       </div>
 
       <Timeline
@@ -234,6 +351,7 @@ export default function EditorView() {
         onSelectSegment={setSelectedSegmentId}
         onSeek={seekTo}
         onSnip={handleSnip}
+        onRemoveBoundary={handleRemoveBoundary}
       />
 
       <SegmentEditorPanel
@@ -290,7 +408,20 @@ export default function EditorView() {
               Exporting{exportJob.progress != null ? ` — ${Math.round(exportJob.progress * 100)}%` : "…"}
             </Text>
           )}
-          {exportJob?.state === "succeeded" && <Text>✅ Exported to {exportJob.output_path}</Text>}
+          {exportJob?.state === "succeeded" && exportJob.output_path && (
+            <Text>
+              ✅ Exported to{" "}
+              <a
+                href="#"
+                onClick={(e) => {
+                  e.preventDefault();
+                  handleOpenExportedFile();
+                }}
+              >
+                {exportJob.output_path}
+              </a>
+            </Text>
+          )}
           {exportJob?.state === "failed" && <Text tone="error">❌ Export failed: {exportJob.error}</Text>}
         </div>
       </Card>

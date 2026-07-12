@@ -5,6 +5,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
+from app import store
 from app.config import VIDEO_EXTENSIONS
 from app.db import get_db
 from app.schemas import IngestRequest, IngestResponse, PairRequest, VideoOut
@@ -16,13 +17,10 @@ CHUNK_SIZE = 1024 * 1024
 RANGE_RE = re.compile(r"bytes=(\d*)-(\d*)")
 
 
-def _row_to_video_out(db, row) -> VideoOut:
-    segment_count = db.execute(
-        "SELECT COUNT(*) FROM segments WHERE video_id = ?", (row["id"],)
-    ).fetchone()[0]
-
-    src = Path(row["path"])
-    exported_path = src.with_name(f"{src.stem}_edited{src.suffix}")
+def _video_out(video_id: str, folder: Path, video: dict) -> VideoOut:
+    src = folder / video["filename"]
+    exported_path = folder / "edited" / f"{src.stem}_edited{src.suffix}"
+    segment_count = len(video["segments"])
     if exported_path.exists():
         status = "exported"
     elif segment_count > 0:
@@ -31,23 +29,26 @@ def _row_to_video_out(db, row) -> VideoOut:
         status = "unprocessed"
 
     return VideoOut(
-        id=row["id"],
-        filename=row["filename"],
-        path=row["path"],
-        duration=row["duration"],
-        source_type=row["source_type"],
-        paired_video_id=row["paired_video_id"],
-        created_at=row["created_at"],
+        id=video_id,
+        filename=video["filename"],
+        path=str(src),
+        duration=video["duration"],
+        source_type=video["source_type"],
+        paired_video_id=video.get("paired_video_id"),
+        created_at=video["created_at"],
         segment_count=segment_count,
         status=status,
     )
 
 
-def get_video_row_or_404(db, video_id: int):
-    row = db.execute("SELECT * FROM videos WHERE id = ?", (video_id,)).fetchone()
-    if row is None:
+def get_video_or_404(db, video_id: str) -> tuple[Path, dict, dict]:
+    """Returns (folder, folder_data, video_dict). Mutate video_dict in place
+    and call store.write_folder_data(folder, folder_data) to persist."""
+    located = store.locate_video(db, video_id)
+    if located is None:
         raise HTTPException(404, "video not found")
-    return row
+    folder, data = located
+    return folder, data, data["videos"][video_id]
 
 
 @router.post("/ingest", response_model=IngestResponse)
@@ -56,26 +57,36 @@ def ingest_folder(payload: IngestRequest):
     if not folder.is_dir():
         raise HTTPException(400, f"not a directory: {folder}")
 
-    added: list[int] = []
-    skipped = 0
-    with get_db() as db:
+    with store.LOCK:
+        with get_db() as db:
+            store.register_folder(db, folder)
+
+        data = store.read_folder_data(folder)
+        known_filenames = {v["filename"] for v in data["videos"].values()}
+
+        added: list[str] = []
+        skipped = 0
         for path in sorted(folder.rglob("*")):
             if not path.is_file() or path.suffix.lower() not in VIDEO_EXTENSIONS:
                 continue
-            existing = db.execute(
-                "SELECT id FROM videos WHERE path = ?", (str(path),)
-            ).fetchone()
-            if existing:
+            rel_name = path.relative_to(folder).as_posix()
+            if rel_name in known_filenames:
                 skipped += 1
                 continue
-            duration = probe_duration(path)
-            cur = db.execute(
-                "INSERT INTO videos (filename, path, duration, source_type) "
-                "VALUES (?, ?, ?, 'unpaired')",
-                (path.name, str(path), duration),
-            )
-            added.append(cur.lastrowid)
-        db.commit()
+            video_id = store.new_id()
+            data["videos"][video_id] = {
+                "filename": rel_name,
+                "duration": probe_duration(path),
+                "source_type": "unpaired",
+                "paired_video_id": None,
+                "created_at": store.now_iso(),
+                "segments": [],
+            }
+            known_filenames.add(rel_name)
+            added.append(video_id)
+
+        if added:
+            store.write_folder_data(folder, data)
 
     return IngestResponse(added=added, skipped_existing=skipped)
 
@@ -83,38 +94,42 @@ def ingest_folder(payload: IngestRequest):
 @router.get("", response_model=list[VideoOut])
 def list_videos():
     with get_db() as db:
-        rows = db.execute("SELECT * FROM videos ORDER BY created_at DESC").fetchall()
-        return [_row_to_video_out(db, row) for row in rows]
+        folders = store.list_registered_folders(db)
+
+    results = []
+    for folder in folders:
+        data = store.read_folder_data(folder)
+        for video_id, video in data["videos"].items():
+            results.append(_video_out(video_id, folder, video))
+    results.sort(key=lambda v: v.created_at, reverse=True)
+    return results
 
 
 @router.get("/{video_id}", response_model=VideoOut)
-def get_video(video_id: int):
+def get_video(video_id: str):
     with get_db() as db:
-        row = get_video_row_or_404(db, video_id)
-        return _row_to_video_out(db, row)
+        folder, _, video = get_video_or_404(db, video_id)
+    return _video_out(video_id, folder, video)
 
 
 @router.post("/{video_id}/pair", response_model=VideoOut)
-def pair_video(video_id: int, payload: PairRequest):
-    with get_db() as db:
-        get_video_row_or_404(db, video_id)
+def pair_video(video_id: str, payload: PairRequest):
+    with store.LOCK, get_db() as db:
+        folder, data, video = get_video_or_404(db, video_id)
         if payload.paired_video_id is not None:
-            get_video_row_or_404(db, payload.paired_video_id)
-        db.execute(
-            "UPDATE videos SET source_type = ?, paired_video_id = ? WHERE id = ?",
-            (payload.source_type, payload.paired_video_id, video_id),
-        )
-        db.commit()
-        row = get_video_row_or_404(db, video_id)
-        return _row_to_video_out(db, row)
+            get_video_or_404(db, payload.paired_video_id)
+        video["source_type"] = payload.source_type
+        video["paired_video_id"] = payload.paired_video_id
+        store.write_folder_data(folder, data)
+    return _video_out(video_id, folder, video)
 
 
 @router.get("/{video_id}/stream")
-def stream_video(video_id: int, request: Request):
+def stream_video(video_id: str, request: Request):
     with get_db() as db:
-        row = get_video_row_or_404(db, video_id)
+        folder, _, video = get_video_or_404(db, video_id)
 
-    path = Path(row["path"])
+    path = folder / video["filename"]
     if not path.exists():
         raise HTTPException(404, "video file missing from disk")
 

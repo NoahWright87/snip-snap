@@ -79,9 +79,12 @@ and use the Vite dev server URL it prints (it proxies `/api` to the backend).
 ## Data
 
 Videos are read in place from wherever you point "Add folder" — nothing is
-copied. Metadata (ingested videos, segments, tags) lives in a SQLite database
-under `~/.snip-snap/` by default (override with the `SNIPSNAP_DATA_DIR`
-environment variable).
+copied. Each folder you add gets a `.snipsnap.json` file written into it
+listing its videos and their segments/tags/decisions — that's the real
+source of truth, so it travels with the videos if you move, copy, or back up
+the folder. A small SQLite database under `~/.snip-snap/` (override with the
+`SNIPSNAP_DATA_DIR` environment variable) just remembers which folders
+you've added, so the library view knows where to look.
 
 ## Tests
 

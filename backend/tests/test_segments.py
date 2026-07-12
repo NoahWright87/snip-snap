@@ -167,3 +167,62 @@ def test_split_rejects_point_too_close_to_boundary(client, tmp_path):
     client.post(f"/api/videos/{video_id}/segments/split", json={"time": 4, "duration": 10})
     resp = client.post(f"/api/videos/{video_id}/segments/split", json={"time": 4.001, "duration": 10})
     assert resp.status_code == 400
+
+
+def test_merge_rejoins_two_segments(client, tmp_path):
+    video_id = _make_video(client, tmp_path)
+    client.post(f"/api/videos/{video_id}/segments/split", json={"time": 4, "duration": 10})
+
+    resp = client.post(f"/api/videos/{video_id}/segments/merge", json={"time": 4})
+    assert resp.status_code == 200
+    segments = resp.json()
+    assert len(segments) == 1
+    assert segments[0]["start_time"] == 0
+    assert segments[0]["end_time"] == 10
+
+
+def test_merge_clears_decision_and_tags_on_both_sides(client, tmp_path):
+    video_id = _make_video(client, tmp_path)
+    client.post(f"/api/videos/{video_id}/segments/split", json={"time": 4, "duration": 10})
+    left, right = sorted(
+        client.get(f"/api/videos/{video_id}/segments").json(), key=lambda s: s["start_time"]
+    )
+    client.patch(f"/api/segments/{left['id']}", json={"decision": "cut"})
+    client.post(f"/api/segments/{left['id']}/tags", json={"tag": "boring"})
+    client.post(f"/api/segments/{right['id']}/tags", json={"tag": "off-topic"})
+
+    resp = client.post(f"/api/videos/{video_id}/segments/merge", json={"time": 4})
+    merged = resp.json()[0]
+    assert merged["decision"] == "keep"
+    assert merged["tags"] == []
+
+
+def test_merge_rejects_time_without_a_boundary_there(client, tmp_path):
+    video_id = _make_video(client, tmp_path)
+    client.post(f"/api/videos/{video_id}/segments/split", json={"time": 4, "duration": 10})
+    resp = client.post(f"/api/videos/{video_id}/segments/merge", json={"time": 7})
+    assert resp.status_code == 400
+
+
+def test_replace_segments_rewrites_the_whole_list(client, tmp_path):
+    video_id = _make_video(client, tmp_path)
+    client.post(f"/api/videos/{video_id}/segments/split", json={"time": 4, "duration": 10})
+    client.post(f"/api/videos/{video_id}/segments/split", json={"time": 7, "duration": 10})
+
+    resp = client.put(
+        f"/api/videos/{video_id}/segments",
+        json={"segments": [{"start_time": 0, "end_time": 10, "decision": "keep", "tags": ["restored"]}]},
+    )
+    assert resp.status_code == 200
+    segments = resp.json()
+    assert len(segments) == 1
+    assert segments[0]["tags"] == ["restored"]
+
+    # Persisted, not just returned.
+    assert client.get(f"/api/videos/{video_id}/segments").json() == segments
+
+
+def test_replace_segments_rejects_empty_list(client, tmp_path):
+    video_id = _make_video(client, tmp_path)
+    resp = client.put(f"/api/videos/{video_id}/segments", json={"segments": []})
+    assert resp.status_code == 400

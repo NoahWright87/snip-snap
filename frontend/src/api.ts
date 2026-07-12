@@ -19,20 +19,20 @@ export type Provenance = "manual" | "diff_inferred" | "suggested_confirmed";
 export type VideoStatus = "unprocessed" | "in_progress" | "exported";
 
 export interface Video {
-  id: number;
+  id: string;
   filename: string;
   path: string;
   duration: number | null;
   source_type: SourceType;
-  paired_video_id: number | null;
+  paired_video_id: string | null;
   created_at: string;
   segment_count: number;
   status: VideoStatus;
 }
 
 export interface Segment {
-  id: number;
-  video_id: number;
+  id: string;
+  video_id: string;
   start_time: number;
   end_time: number;
   decision: Decision;
@@ -60,53 +60,68 @@ export const api = {
   listVideos: () => request<Video[]>("/videos"),
 
   ingest: (folder: string) =>
-    request<{ added: number[]; skipped_existing: number }>("/videos/ingest", {
+    request<{ added: string[]; skipped_existing: number }>("/videos/ingest", {
       method: "POST",
       body: JSON.stringify({ folder }),
     }),
 
-  getVideo: (id: number) => request<Video>(`/videos/${id}`),
+  getVideo: (id: string) => request<Video>(`/videos/${id}`),
 
-  pairVideos: (id: number, pairedVideoId: number | null, sourceType: SourceType) =>
+  pairVideos: (id: string, pairedVideoId: string | null, sourceType: SourceType) =>
     request<Video>(`/videos/${id}/pair`, {
       method: "POST",
       body: JSON.stringify({ paired_video_id: pairedVideoId, source_type: sourceType }),
     }),
 
-  listSegments: (videoId: number) => request<Segment[]>(`/videos/${videoId}/segments`),
+  listSegments: (videoId: string) => request<Segment[]>(`/videos/${videoId}/segments`),
 
-  initSegments: (videoId: number, duration: number) =>
+  initSegments: (videoId: string, duration: number) =>
     request<Segment[]>(`/videos/${videoId}/segments/init`, {
       method: "POST",
       body: JSON.stringify({ duration }),
     }),
 
-  splitSegment: (videoId: number, time: number, duration: number) =>
+  splitSegment: (videoId: string, time: number, duration: number) =>
     request<Segment[]>(`/videos/${videoId}/segments/split`, {
       method: "POST",
       body: JSON.stringify({ time, duration }),
     }),
 
-  updateSegment: (id: number, patch: Partial<Pick<Segment, "start_time" | "end_time" | "decision">>) =>
+  mergeSegments: (videoId: string, time: number) =>
+    request<Segment[]>(`/videos/${videoId}/segments/merge`, {
+      method: "POST",
+      body: JSON.stringify({ time }),
+    }),
+
+  replaceSegments: (
+    videoId: string,
+    segments: Pick<Segment, "start_time" | "end_time" | "decision" | "tags">[],
+  ) =>
+    request<Segment[]>(`/videos/${videoId}/segments`, {
+      method: "PUT",
+      body: JSON.stringify({ segments }),
+    }),
+
+  updateSegment: (id: string, patch: Partial<Pick<Segment, "start_time" | "end_time" | "decision">>) =>
     request<Segment>(`/segments/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
 
-  deleteSegment: (id: number) => request<void>(`/segments/${id}`, { method: "DELETE" }),
+  deleteSegment: (id: string) => request<void>(`/segments/${id}`, { method: "DELETE" }),
 
-  addTag: (segmentId: number, tag: string) =>
+  addTag: (segmentId: string, tag: string) =>
     request<Segment>(`/segments/${segmentId}/tags`, { method: "POST", body: JSON.stringify({ tag }) }),
 
-  removeTag: (segmentId: number, tag: string) =>
+  removeTag: (segmentId: string, tag: string) =>
     request<Segment>(`/segments/${segmentId}/tags/${encodeURIComponent(tag)}`, { method: "DELETE" }),
 
   listTags: () => request<string[]>("/tags"),
 
-  startExport: (videoId: number, options: { output_path?: string | null; resolution: Resolution }) =>
+  startExport: (videoId: string, options: { output_path?: string | null; resolution: Resolution }) =>
     request<ExportJobStatus>(`/videos/${videoId}/export`, {
       method: "POST",
       body: JSON.stringify(options),
     }),
 
-  getExportStatus: (videoId: number) => request<ExportJobStatus>(`/videos/${videoId}/export/status`),
+  getExportStatus: (videoId: string) => request<ExportJobStatus>(`/videos/${videoId}/export/status`),
 
   getFfmpegStatus: () => request<FfmpegStatus>("/ffmpeg/status"),
 
@@ -121,8 +136,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ initial_dir: initialDir ?? null, initial_file: initialFile ?? null }),
     }),
+
+  openFile: (path: string) =>
+    request<{ ok: boolean }>("/open-file", { method: "POST", body: JSON.stringify({ path }) }),
 };
 
-export function videoStreamUrl(videoId: number): string {
+export function videoStreamUrl(videoId: string): string {
   return `${BASE}/videos/${videoId}/stream`;
 }

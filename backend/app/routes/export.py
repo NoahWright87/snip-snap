@@ -9,7 +9,7 @@ from app import ffmpeg_setup
 from app.db import get_db
 from app.ffmpeg_locate import ffmpeg_path
 from app.proc import popen_hidden
-from app.routes.videos import get_video_row_or_404
+from app.routes.videos import get_video_or_404
 from app.schemas import ExportJobStatus, ExportRequest
 
 router = APIRouter(prefix="/api/videos", tags=["export"])
@@ -23,15 +23,15 @@ RESOLUTION_FILTERS: dict[str, Optional[str]] = {
 }
 
 _jobs_lock = threading.Lock()
-_jobs: dict[int, dict] = {}
+_jobs: dict[str, dict] = {}
 
 
-def _update_job(video_id: int, **fields) -> None:
+def _update_job(video_id: str, **fields) -> None:
     with _jobs_lock:
         _jobs.setdefault(video_id, {}).update(fields)
 
 
-def _get_job(video_id: int) -> dict:
+def _get_job(video_id: str) -> dict:
     with _jobs_lock:
         job = _jobs.get(video_id, {})
     return {
@@ -69,7 +69,7 @@ def _build_filter_complex(segments: list, resolution: str) -> tuple[str, list[st
     return filter_complex, [f"[{video_label}]", "[outa]"]
 
 
-def _run_export(video_id: int, cmd: list[str], out_path: Path, total_duration: float) -> None:
+def _run_export(video_id: str, cmd: list[str], out_path: Path, total_duration: float) -> None:
     try:
         proc = popen_hidden(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
 
@@ -105,14 +105,12 @@ def _run_export(video_id: int, cmd: list[str], out_path: Path, total_duration: f
 
 
 @router.post("/{video_id}/export", response_model=ExportJobStatus, status_code=202)
-def export_video(video_id: int, payload: ExportRequest):
+def export_video(video_id: str, payload: ExportRequest):
     with get_db() as db:
-        row = get_video_row_or_404(db, video_id)
-        segments = db.execute(
-            "SELECT start_time, end_time FROM segments "
-            "WHERE video_id = ? AND decision = 'keep' ORDER BY start_time",
-            (video_id,),
-        ).fetchall()
+        folder, _, video = get_video_or_404(db, video_id)
+    segments = sorted(
+        (s for s in video["segments"] if s["decision"] == "keep"), key=lambda s: s["start_time"]
+    )
 
     if not segments:
         raise HTTPException(400, "no kept segments to export")
@@ -120,7 +118,7 @@ def export_video(video_id: int, payload: ExportRequest):
     if _get_job(video_id)["state"] == "running":
         raise HTTPException(409, "an export is already in progress for this video")
 
-    src = Path(row["path"])
+    src = folder / video["filename"]
     if not src.exists():
         raise HTTPException(404, "source video file missing from disk")
 
@@ -163,5 +161,5 @@ def export_video(video_id: int, payload: ExportRequest):
 
 
 @router.get("/{video_id}/export/status", response_model=ExportJobStatus)
-def export_status(video_id: int):
+def export_status(video_id: str):
     return _get_job(video_id)

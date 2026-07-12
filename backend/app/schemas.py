@@ -8,12 +8,12 @@ Provenance = Literal["manual", "diff_inferred", "suggested_confirmed"]
 
 
 class VideoOut(BaseModel):
-    id: int
+    id: str
     filename: str
     path: str
     duration: Optional[float]
     source_type: SourceType
-    paired_video_id: Optional[int]
+    paired_video_id: Optional[str]
     created_at: str
     segment_count: int
     status: str
@@ -24,18 +24,18 @@ class IngestRequest(BaseModel):
 
 
 class IngestResponse(BaseModel):
-    added: list[int]
+    added: list[str]
     skipped_existing: int
 
 
 class PairRequest(BaseModel):
-    paired_video_id: Optional[int] = None
+    paired_video_id: Optional[str] = None
     source_type: SourceType
 
 
 class SegmentOut(BaseModel):
-    id: int
-    video_id: int
+    id: str
+    video_id: str
     start_time: float
     end_time: float
     decision: Decision
@@ -69,6 +69,25 @@ class InitSegmentsRequest(BaseModel):
 class SplitSegmentRequest(BaseModel):
     time: float
     duration: float
+
+
+class MergeSegmentsRequest(BaseModel):
+    time: float
+
+
+class ReplaceSegment(BaseModel):
+    start_time: float
+    end_time: float
+    decision: Decision = "keep"
+    tags: list[str] = []
+
+
+class ReplaceSegmentsRequest(BaseModel):
+    segments: list[ReplaceSegment]
+
+
+class OpenFileRequest(BaseModel):
+    path: str
 
 
 Resolution = Literal["1080p", "720p", "original"]
