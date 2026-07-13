@@ -11,7 +11,7 @@ export default function App() {
         <Header
           left={
             <Link to="/" style={{ textDecoration: "none", color: "inherit" }}>
-              <Heading level={2}>snip-snap</Heading>
+              <Heading level={2}>¡Snip Snap! ✂️🫰</Heading>
             </Link>
           }
         />

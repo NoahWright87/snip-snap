@@ -11,7 +11,7 @@ from app.db import init_db
 from app.ffmpeg_setup import ensure_ffmpeg_ready, get_status as get_ffmpeg_status
 from app.lifecycle import record_heartbeat, request_shutdown, watch_inactivity
 from app.open_file import open_file
-from app.routes import dialogs, export, segments, videos
+from app.routes import dialogs, export, folders, segments, videos
 from app.schemas import FfmpegStatus, OpenFileRequest
 
 if getattr(sys, "frozen", False):
@@ -40,6 +40,7 @@ app.include_router(videos.router)
 app.include_router(segments.router)
 app.include_router(export.router)
 app.include_router(dialogs.router)
+app.include_router(folders.router)
 
 
 @app.get("/api/health")

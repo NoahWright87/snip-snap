@@ -56,6 +56,13 @@ export interface FfmpegStatus {
   progress: number | null;
 }
 
+export interface Folder {
+  id: number;
+  path: string;
+  added_at: string;
+  video_count: number;
+}
+
 export const api = {
   listVideos: () => request<Video[]>("/videos"),
 
@@ -139,6 +146,10 @@ export const api = {
 
   openFile: (path: string) =>
     request<{ ok: boolean }>("/open-file", { method: "POST", body: JSON.stringify({ path }) }),
+
+  listFolders: () => request<Folder[]>("/folders"),
+
+  removeFolder: (id: number) => request<void>(`/folders/${id}`, { method: "DELETE" }),
 };
 
 export function videoStreamUrl(videoId: string): string {

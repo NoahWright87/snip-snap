@@ -66,23 +66,26 @@ def ingest_folder(payload: IngestRequest):
 
         added: list[str] = []
         skipped = 0
-        for path in sorted(folder.rglob("*")):
+        # Top-level files only, not subfolders - the default export location
+        # is itself a subfolder ("edited/"), so recursing would eventually
+        # pick up the app's own exported output as a new "source" video.
+        for path in sorted(folder.iterdir()):
             if not path.is_file() or path.suffix.lower() not in VIDEO_EXTENSIONS:
                 continue
-            rel_name = path.relative_to(folder).as_posix()
-            if rel_name in known_filenames:
+            name = path.name
+            if name in known_filenames:
                 skipped += 1
                 continue
             video_id = store.new_id()
             data["videos"][video_id] = {
-                "filename": rel_name,
+                "filename": name,
                 "duration": probe_duration(path),
                 "source_type": "unpaired",
                 "paired_video_id": None,
                 "created_at": store.now_iso(),
                 "segments": [],
             }
-            known_filenames.add(rel_name)
+            known_filenames.add(name)
             added.append(video_id)
 
         if added:

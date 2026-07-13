@@ -74,6 +74,19 @@ def list_registered_folders(db) -> list[Path]:
     return [Path(row["path"]) for row in rows]
 
 
+def list_folder_rows(db) -> list[dict]:
+    rows = db.execute("SELECT id, path, added_at FROM folders ORDER BY added_at").fetchall()
+    return [{"id": row["id"], "path": Path(row["path"]), "added_at": row["added_at"]} for row in rows]
+
+
+def remove_folder(db, folder_id: int) -> bool:
+    """Un-registers a folder. Its .snipsnap.json is left on disk untouched -
+    re-adding the same path later picks the data back up."""
+    cur = db.execute("DELETE FROM folders WHERE id = ?", (folder_id,))
+    db.commit()
+    return cur.rowcount > 0
+
+
 # --- Cross-folder video lookup ---------------------------------------------
 
 

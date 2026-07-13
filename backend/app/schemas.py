@@ -28,6 +28,13 @@ class IngestResponse(BaseModel):
     skipped_existing: int
 
 
+class FolderOut(BaseModel):
+    id: int
+    path: str
+    added_at: str
+    video_count: int
+
+
 class PairRequest(BaseModel):
     paired_video_id: Optional[str] = None
     source_type: SourceType

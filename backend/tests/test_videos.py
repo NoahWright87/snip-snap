@@ -17,6 +17,19 @@ def test_ingest_registers_video_files(client, tmp_path):
     assert videos[0]["segment_count"] == 0
 
 
+def test_ingest_does_not_recurse_into_subfolders(client, tmp_path):
+    folder = tmp_path / "library"
+    folder.mkdir()
+    (folder / "clip.mp4").write_bytes(b"x")
+    edited = folder / "edited"
+    edited.mkdir()
+    (edited / "clip_edited.mp4").write_bytes(b"x")
+
+    resp = client.post("/api/videos/ingest", json={"folder": str(folder)})
+    assert resp.json()["added"] == [client.get("/api/videos").json()[0]["id"]]
+    assert len(client.get("/api/videos").json()) == 1
+
+
 def test_ingest_is_idempotent(client, tmp_path):
     folder = tmp_path / "library"
     folder.mkdir()
