@@ -1,0 +1,3 @@
+# Only needed to package the app into a standalone executable (CI preview
+# builds). Not required to run snip-snap from source.
+pyinstaller>=6.6
