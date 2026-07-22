@@ -1,0 +1,10 @@
+# Dev-only deps for one-time CLIP work: the Phase 1 validation CLIs
+# (extract_embeddings.py / sanity_check.py) and convert_to_onnx.py (exports
+# open_clip's visual encoder to the .onnx file the app actually ships/
+# downloads - see clip_setup.py). Never installed on an end user's machine
+# or bundled into the packaged app - the runtime deps that ship live in
+# ../requirements.txt (onnxruntime, numpy, Pillow, scikit-learn), which are
+# small enough not to need this separation.
+torch>=2.2
+open_clip_torch>=2.24
+onnx>=1.16

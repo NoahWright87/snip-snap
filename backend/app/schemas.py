@@ -116,3 +116,9 @@ class FfmpegStatus(BaseModel):
     state: Literal["checking", "downloading", "ready", "error"]
     message: str = ""
     progress: Optional[float] = None
+
+
+class AnalysisStatus(BaseModel):
+    state: Literal["idle", "downloading_model", "running", "succeeded", "failed"]
+    message: str = ""
+    progress: Optional[float] = None

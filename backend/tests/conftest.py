@@ -7,7 +7,8 @@ if str(BACKEND_DIR) not in sys.path:
 
 import pytest
 
-from app import config, db, ffmpeg_setup
+from app import clip_setup, config, db, ffmpeg_setup
+from app.routes import analysis as analysis_routes
 from app.routes import export as export_routes
 
 
@@ -20,6 +21,13 @@ def _reset_ffmpeg_status():
     ffmpeg_setup._set_status("checking", "")
 
 
+@pytest.fixture(autouse=True)
+def _reset_clip_status():
+    clip_setup._set_status("checking", "")
+    yield
+    clip_setup._set_status("checking", "")
+
+
 @pytest.fixture()
 def client(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "DB_PATH", tmp_path / "test.db")
@@ -30,9 +38,10 @@ def client(tmp_path, monkeypatch):
     # care about ffmpeg behavior monkeypatch it explicitly.
     monkeypatch.setattr("app.main.ensure_ffmpeg_ready", lambda: None)
 
-    # Export job state is a module-level dict so it survives across tests
+    # Export/analysis job state is module-level so it survives across tests
     # in the same process - reset it for isolation.
     export_routes._jobs.clear()
+    analysis_routes._set_status(state="idle", progress=None, message="")
 
     from fastapi.testclient import TestClient
 

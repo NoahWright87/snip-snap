@@ -3,3 +3,12 @@ uvicorn[standard]>=0.29
 pydantic>=2.6
 pytest>=8.0
 httpx>=0.27
+
+# Local clip-suggestion analysis (auto-detection roadmap, issue #3+). Small
+# enough to ship in the packaged app directly - see backend/ml/ and
+# app/clip_setup.py. onnxruntime is the inference engine (no PyTorch); the
+# model weights themselves download in the background on first use.
+onnxruntime>=1.17
+numpy>=1.26
+Pillow>=10.2
+scikit-learn>=1.4

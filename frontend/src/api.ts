@@ -63,6 +63,12 @@ export interface Folder {
   video_count: number;
 }
 
+export interface AnalysisStatus {
+  state: "idle" | "downloading_model" | "running" | "succeeded" | "failed";
+  message: string;
+  progress: number | null;
+}
+
 export const api = {
   listVideos: () => request<Video[]>("/videos"),
 
@@ -150,6 +156,10 @@ export const api = {
   listFolders: () => request<Folder[]>("/folders"),
 
   removeFolder: (id: number) => request<void>(`/folders/${id}`, { method: "DELETE" }),
+
+  runAnalysis: () => request<AnalysisStatus>("/analysis/run", { method: "POST" }),
+
+  getAnalysisStatus: () => request<AnalysisStatus>("/analysis/status"),
 };
 
 export function videoStreamUrl(videoId: string): string {

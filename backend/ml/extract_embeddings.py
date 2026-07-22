@@ -2,18 +2,23 @@
 library (or one folder), so later phases can train per-tag classifiers on
 top of them.
 
+This is a dev/validation tool, not something the app's actual user runs -
+see routes/analysis.py for the in-app "Analyze library" button that does
+the same thing without a terminal.
+
 Usage:
     python -m ml.extract_embeddings              # every registered folder
     python -m ml.extract_embeddings /path/to/dir  # just one folder
 
-Run from backend/, with ml/requirements.txt installed (see that file for
-why it's separate from requirements.txt).
+Run from backend/, with requirements.txt installed (same deps as running
+the app itself - this no longer needs the separate ml/requirements-dev.txt,
+which is now only for convert_to_onnx.py).
 """
 import argparse
 import sys
 from pathlib import Path
 
-from app import db, store
+from app import clip_setup, db, store
 from app.ffmpeg_locate import is_available
 
 from ml import embeddings
@@ -59,6 +64,13 @@ def main() -> int:
 
     if not is_available():
         print("ffmpeg not found - can't extract frames. Run the app once first so it can set up ffmpeg, or install it and put it on PATH.")
+        return 1
+
+    print("Checking CLIP model...")
+    clip_setup.ensure_clip_ready()
+    status = clip_setup.get_status()
+    if status["state"] != "ready":
+        print(f"CLIP model isn't ready ({status['state']}: {status['message']}). Can't embed segments yet.")
         return 1
 
     if args.folder is not None:

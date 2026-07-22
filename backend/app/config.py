@@ -26,3 +26,14 @@ FFMPEG_DOWNLOAD_URL = os.environ.get(
     "SNIPSNAP_FFMPEG_URL",
     "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip",
 )
+
+# CLIP's visual encoder (ONNX export - see backend/ml/convert_to_onnx.py),
+# downloaded in the background the first time library analysis runs (see
+# app/clip_setup.py) rather than bundled, for the same "keep the app itself
+# small" reason as ffmpeg above. Placeholder until that conversion is done
+# and published as a release asset - downloads will fail with this URL
+# until then.
+CLIP_MODEL_DOWNLOAD_URL = os.environ.get(
+    "SNIPSNAP_CLIP_MODEL_URL",
+    "https://github.com/NoahWright87/snip-snap/releases/download/clip-model-v1/clip_visual.onnx",
+)

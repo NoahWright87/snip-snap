@@ -1,7 +1,9 @@
 import numpy as np
+import onnx
 import pytest
-import torch
+from onnx import TensorProto, helper
 
+from app import clip_locate
 from app.proc import run_hidden
 
 from ml import embeddings
@@ -27,36 +29,45 @@ def synthetic_video(tmp_path_factory):
     return path
 
 
-class _FakeClipModel:
-    """Stands in for a real CLIP model: downloading actual weights needs a
-    network call this sandbox's egress policy blocks. `encode_image` returns
-    a deterministic, distinct vector per frame in the batch so pooling
-    behavior is still meaningfully testable."""
+def _build_synthetic_onnx_model(output_path, output_dim=4):
+    """A tiny, deterministic stand-in for the real CLIP export (flatten the
+    224x224x3 input, then a fixed linear projection) - real CLIP weights
+    need a network download this sandbox's egress policy blocks (see
+    ml/convert_to_onnx.py), so this validates the real load/run/pool/cache
+    wiring in embeddings.py without needing one."""
+    input_size = 3 * embeddings.CLIP_INPUT_SIZE * embeddings.CLIP_INPUT_SIZE
+    rng = np.random.default_rng(0)
+    weight = rng.standard_normal((input_size, output_dim)).astype(np.float32)
 
-    def eval(self):
-        return self
+    input_tensor = helper.make_tensor_value_info(
+        "pixel_values", TensorProto.FLOAT, ["batch", 3, embeddings.CLIP_INPUT_SIZE, embeddings.CLIP_INPUT_SIZE]
+    )
+    output_tensor = helper.make_tensor_value_info("image_features", TensorProto.FLOAT, ["batch", output_dim])
+    weight_initializer = helper.make_tensor("weight", TensorProto.FLOAT, weight.shape, weight.flatten().tolist())
 
-    def to(self, device):
-        return self
+    flatten_node = helper.make_node("Flatten", ["pixel_values"], ["flattened"], axis=1)
+    matmul_node = helper.make_node("MatMul", ["flattened", "weight"], ["image_features"])
 
-    def encode_image(self, batch):
-        n = batch.shape[0]
-        return torch.arange(1, n * 4 + 1, dtype=torch.float32).reshape(n, 4)
+    graph = helper.make_graph(
+        [flatten_node, matmul_node], "tiny_test_model", [input_tensor], [output_tensor], [weight_initializer]
+    )
+    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+    onnx.checker.check_model(model)
+    onnx.save(model, str(output_path))
 
 
 @pytest.fixture(autouse=True)
-def _stub_clip_model(monkeypatch):
-    monkeypatch.setattr(
-        "open_clip.create_model_and_transforms",
-        lambda name, pretrained: (_FakeClipModel(), None, lambda image: torch.zeros(3, 2, 2)),
-    )
-    embeddings._model = None
-    embeddings._preprocess = None
-    embeddings._device = None
+def _stub_clip_model(tmp_path, monkeypatch):
+    cache_dir = tmp_path / "clip_bin"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    _build_synthetic_onnx_model(cache_dir / clip_locate.MODEL_FILENAME)
+    monkeypatch.setattr(clip_locate, "cache_dir", lambda: cache_dir)
+
+    embeddings._session = None
+    embeddings._input_name = None
     yield
-    embeddings._model = None
-    embeddings._preprocess = None
-    embeddings._device = None
+    embeddings._session = None
+    embeddings._input_name = None
 
 
 def test_sample_frame_times_spans_the_segment():
@@ -85,6 +96,15 @@ def test_extract_frame_without_ffmpeg_returns_none(monkeypatch, synthetic_video)
     assert embeddings.extract_frame(synthetic_video, 1.0) is None
 
 
+def test_preprocess_image_produces_the_expected_shape():
+    from PIL import Image
+
+    image = Image.fromarray(np.zeros((300, 400, 3), dtype=np.uint8))
+    array = embeddings._preprocess_image(image)
+    assert array.shape == (3, embeddings.CLIP_INPUT_SIZE, embeddings.CLIP_INPUT_SIZE)
+    assert array.dtype == np.float32
+
+
 def test_embed_frames_of_no_frames_is_none():
     assert embeddings.embed_frames([]) is None
 
@@ -92,23 +112,48 @@ def test_embed_frames_of_no_frames_is_none():
 def test_embed_segment_produces_a_pooled_vector(synthetic_video):
     vector = embeddings.embed_segment(synthetic_video, 0.0, 2.0)
     assert vector is not None
-    # 2s segment at the default 1.5fps sampling -> 3 frames -> fake model's
-    # per-frame features average out to a vector matching the mean of 3
-    # distinct unit-normalized rows, not the raw [1,2,3,4]/[5,6,7,8]/... input.
     assert vector.shape == (4,)
     assert np.isfinite(vector).all()
 
 
-def test_load_clip_model_falls_back_to_cpu_without_cuda(monkeypatch):
-    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
-    _, _, device = embeddings.load_clip_model()
-    assert device == "cpu"
+def test_load_clip_model_raises_a_clear_error_if_not_downloaded(tmp_path, monkeypatch):
+    monkeypatch.setattr(clip_locate, "cache_dir", lambda: tmp_path / "nonexistent")
+    with pytest.raises(RuntimeError, match="not downloaded"):
+        embeddings.load_clip_model()
 
 
-def test_load_clip_model_uses_cuda_when_available(monkeypatch):
-    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
-    _, _, device = embeddings.load_clip_model()
-    assert device == "cuda"
+def test_load_clip_model_falls_back_to_cpu_provider(monkeypatch):
+    import onnxruntime as ort
+
+    monkeypatch.setattr(ort, "get_available_providers", lambda: ["CPUExecutionProvider"])
+    captured = {}
+    real_session_cls = ort.InferenceSession
+
+    def _spy(path, providers=None):
+        captured["providers"] = providers
+        return real_session_cls(path, providers=providers)
+
+    monkeypatch.setattr(ort, "InferenceSession", _spy)
+    embeddings.load_clip_model()
+    assert captured["providers"] == ["CPUExecutionProvider"]
+
+
+def test_load_clip_model_prefers_cuda_when_available(monkeypatch):
+    import onnxruntime as ort
+
+    monkeypatch.setattr(ort, "get_available_providers", lambda: ["CUDAExecutionProvider", "CPUExecutionProvider"])
+    captured = {}
+    real_session_cls = ort.InferenceSession
+
+    def _spy(path, providers=None):
+        captured["providers"] = providers
+        # CUDA isn't actually installed in this sandbox - load with CPU
+        # regardless, we're only checking what our own code requested.
+        return real_session_cls(path, providers=["CPUExecutionProvider"])
+
+    monkeypatch.setattr(ort, "InferenceSession", _spy)
+    embeddings.load_clip_model()
+    assert captured["providers"][0] == "CUDAExecutionProvider"
 
 
 def test_cache_round_trips(tmp_path, monkeypatch):

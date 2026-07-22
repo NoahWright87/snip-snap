@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, Folder, Video, VideoStatus } from "../api";
 import FolderSection from "../components/FolderSection";
+import { useAnalysisStatus } from "../hooks/useAnalysisStatus";
 
 const STATUS_LABEL: Record<VideoStatus, string> = {
   unprocessed: "Unprocessed",
@@ -37,6 +38,8 @@ export default function LibraryView() {
   const [ingestOpen, setIngestOpen] = useState(false);
   const [folderPath, setFolderPath] = useState("");
   const [hideExported, setHideExported] = useState(false);
+  const [analysisStatus, refreshAnalysisStatus] = useAnalysisStatus();
+  const analysisRunning = analysisStatus?.state === "downloading_model" || analysisStatus?.state === "running";
 
   async function refresh() {
     setLoading(true);
@@ -80,6 +83,15 @@ export default function LibraryView() {
     try {
       await api.removeFolder(folder.id);
       await refresh();
+    } catch (err) {
+      setError(String(err));
+    }
+  }
+
+  async function handleAnalyze() {
+    try {
+      await api.runAnalysis();
+      refreshAnalysisStatus();
     } catch (err) {
       setError(String(err));
     }
@@ -141,7 +153,12 @@ export default function LibraryView() {
           </Text>
           <Checkbox label="Hide exported" checked={hideExported} onChange={(e) => setHideExported(e.target.checked)} />
         </div>
-        <Button onClick={() => setIngestOpen(true)}>Add folder</Button>
+        <div style={{ display: "flex", gap: "0.5rem" }}>
+          <Button variant="outline" onClick={handleAnalyze} disabled={analysisRunning}>
+            {analysisRunning ? "Analyzing…" : "Analyze library"}
+          </Button>
+          <Button onClick={() => setIngestOpen(true)}>Add folder</Button>
+        </div>
       </div>
 
       {error && <Text tone="error">{error}</Text>}
