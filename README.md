@@ -113,7 +113,7 @@ with a direct download link once the build finishes (or a link to the log if
 it fails); the artifact is also always reachable under the PR's checks:
 **Checks tab → "Preview Build (Windows)" → Summary → Artifacts**. Download
 and unzip `snip-snap-preview-unsigned-pr<N>`, then double-click
-`snip-snap-preview-setup.exe` (installer path) or `snip-snap.exe` (portable).
+`snip-snap.exe`.
 These preview artifacts are unsigned and meant for PR validation (not normal
 end-user installs), so Windows SmartScreen may warn. See the bundled
 `README.txt` for details.

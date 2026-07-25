@@ -9,14 +9,9 @@ For normal installs, use the release installer instead:
 https://github.com/NoahWright87/snip-snap/releases/latest
 
 To run:
-  Option A (recommended for install-path testing):
-    1. Double-click snip-snap-preview-setup.exe and complete the installer.
-    2. Launch snip-snap from Start menu or desktop shortcut.
-
-  Option B (portable executable):
-    1. Double-click snip-snap.exe. No console/terminal window will appear.
-    2. A standalone app window will open automatically after a moment (using
-       Chrome or Edge in app mode - no address bar or tabs, just the app).
+  1. Double-click snip-snap.exe. No console/terminal window will appear.
+  2. A standalone app window will open automatically after a moment (using
+     Chrome or Edge in app mode - no address bar or tabs, just the app).
 
   First-run note:
     The app sets up ffmpeg in the background on first launch (one-time

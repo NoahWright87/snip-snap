@@ -61,9 +61,6 @@ jobs:
         working-directory: backend
         run: python -m pytest -q
 
-      - name: Install Inno Setup
-        run: choco install innosetup --yes --no-progress
-
       - name: Build standalone executable
         working-directory: backend
         run: >
@@ -76,19 +73,12 @@ jobs:
           --noconfirm
           launcher.py
 
-      - name: Build unsigned preview installer
-        shell: pwsh
-        run: |
-          $previewVersion = "0.0.${{ github.event.pull_request.number }}"
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" backend\packaging\windows\snip-snap.iss /DAppVersion=$previewVersion
-
       - name: Assemble preview package
         working-directory: backend
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Path preview | Out-Null
           Copy-Item dist/snip-snap.exe preview/snip-snap.exe
-          Copy-Item packaging/windows/output/snip-snap-setup-0.0.${{ github.event.pull_request.number }}.exe preview/snip-snap-preview-setup.exe
           Copy-Item packaging/PREVIEW_README.txt preview/README.txt
 
       - uses: actions/upload-artifact@v4
@@ -131,7 +121,7 @@ jobs:
                   '',
                   `📦 [Download ${artifactName}.zip](${artifactUrl})`,
                   '⚠️ Preview artifacts are for PR testing and are unsigned.',
-                  'Included in the zip: `snip-snap.exe` and `snip-snap-preview-setup.exe`.',
+                  'Included in the zip: `snip-snap.exe`.',
                   `📋 [Build log](${runUrl})`,
                 ].join('\n'),
               })
