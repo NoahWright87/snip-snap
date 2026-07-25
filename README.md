@@ -93,6 +93,16 @@ cd backend
 pytest
 ```
 
+## Installing on Windows
+
+Use the latest installer from GitHub Releases:
+
+- https://github.com/NoahWright87/snip-snap/releases/latest
+
+Download `snip-snap-setup-<version>.exe` and run it. New releases are
+installed by running the next installer version; your app data stays under
+`~/.snip-snap/`, so upgrades keep your library and editing state.
+
 ## Trying a pull request without setting up a dev environment
 
 Every PR that touches `backend/` or `frontend/` gets a Windows preview build
@@ -102,7 +112,8 @@ run - see above - so the artifact stays small). The PR itself gets a comment
 with a direct download link once the build finishes (or a link to the log if
 it fails); the artifact is also always reachable under the PR's checks:
 **Checks tab → "Preview Build (Windows)" → Summary → Artifacts**. Download
-and unzip `snip-snap-preview-pr<N>`, then double-click `snip-snap.exe` — no
-console window, no browser tab, just an app window. Windows SmartScreen will
-likely warn since it's unsigned — that's expected for an unsigned build,
-click "More info" → "Run anyway". See the bundled `README.txt` for details.
+and unzip `snip-snap-preview-unsigned-pr<N>`, then double-click
+`snip-snap-preview-setup.exe` (installer path) or `snip-snap.exe` (portable).
+These preview artifacts are unsigned and meant for PR validation (not normal
+end-user installs), so Windows SmartScreen may warn. See the bundled
+`README.txt` for details.

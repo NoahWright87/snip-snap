@@ -1,7 +1,9 @@
 import asyncio
 import sys
 from contextlib import asynccontextmanager
+from json import JSONDecodeError
 from pathlib import Path
+from urllib.error import HTTPError, URLError
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
@@ -12,7 +14,8 @@ from app.ffmpeg_setup import ensure_ffmpeg_ready, get_status as get_ffmpeg_statu
 from app.lifecycle import record_heartbeat, request_shutdown, watch_inactivity
 from app.open_file import open_file
 from app.routes import dialogs, export, folders, segments, videos
-from app.schemas import FfmpegStatus, OpenFileRequest
+from app.schemas import AppUpdateStatus, FfmpegStatus, OpenFileRequest
+from app.version import DOWNLOADS_PAGE_URL, fetch_latest_release, get_current_version, is_newer_version
 
 if getattr(sys, "frozen", False):
     # Running as a PyInstaller-packaged executable: the built frontend is
@@ -63,6 +66,28 @@ def shutdown():
 @app.get("/api/ffmpeg/status", response_model=FfmpegStatus)
 def ffmpeg_status():
     return get_ffmpeg_status()
+
+
+@app.get("/api/app/update-status", response_model=AppUpdateStatus)
+def app_update_status():
+    current_version = get_current_version()
+    try:
+        latest_release = fetch_latest_release()
+    except (HTTPError, URLError, TimeoutError, OSError, JSONDecodeError, ValueError) as exc:
+        return AppUpdateStatus(
+            current_version=current_version,
+            latest_version=None,
+            update_available=False,
+            release_url=DOWNLOADS_PAGE_URL,
+            error=str(exc) or exc.__class__.__name__,
+        )
+    return AppUpdateStatus(
+        current_version=current_version,
+        latest_version=latest_release.version,
+        update_available=is_newer_version(current_version, latest_release.version),
+        release_url=latest_release.html_url,
+        error=None,
+    )
 
 
 @app.post("/api/open-file")

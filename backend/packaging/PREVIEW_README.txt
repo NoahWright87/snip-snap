@@ -5,16 +5,23 @@ This is an automatically built preview of snip-snap from a pull request.
 It is NOT signed, so Windows will likely show a "Windows protected your PC"
 SmartScreen warning when you run it. That's expected for an unsigned indie
 app, not a sign anything is wrong - click "More info", then "Run anyway".
+For normal installs, use the release installer instead:
+https://github.com/NoahWright87/snip-snap/releases/latest
 
 To run:
-  1. Double-click snip-snap.exe. No console/terminal window will appear.
-  2. A standalone app window will open automatically after a moment (using
-     Chrome or Edge in app mode - no address bar or tabs, just the app).
-  3. The first time you run it, a banner at the top will say it's setting
-     up ffmpeg in the background (one-time download, a hundred-ish MB) -
-     you can start marking cuts/keeps while that finishes. Exporting just
-     waits until it's ready.
-  4. To quit, close that window - the app shuts itself down automatically.
+  Option A (recommended for install-path testing):
+    1. Double-click snip-snap-preview-setup.exe and complete the installer.
+    2. Launch snip-snap from Start menu or desktop shortcut.
+
+  Option B (portable executable):
+    1. Double-click snip-snap.exe. No console/terminal window will appear.
+    2. A standalone app window will open automatically after a moment (using
+       Chrome or Edge in app mode - no address bar or tabs, just the app).
+
+  First-run note:
+    The app sets up ffmpeg in the background on first launch (one-time
+    download, a hundred-ish MB). You can start marking cuts/keeps while that
+    finishes; exporting waits until it's ready.
 
 Your videos are read in place from wherever you point "Add folder" -
 nothing is uploaded or copied anywhere. All data (which videos you've

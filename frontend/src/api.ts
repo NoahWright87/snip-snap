@@ -56,6 +56,14 @@ export interface FfmpegStatus {
   progress: number | null;
 }
 
+export interface AppUpdateStatus {
+  current_version: string;
+  latest_version: string | null;
+  update_available: boolean;
+  release_url: string;
+  error: string | null;
+}
+
 export interface Folder {
   id: number;
   path: string;
@@ -131,6 +139,8 @@ export const api = {
   getExportStatus: (videoId: string) => request<ExportJobStatus>(`/videos/${videoId}/export/status`),
 
   getFfmpegStatus: () => request<FfmpegStatus>("/ffmpeg/status"),
+
+  getAppUpdateStatus: () => request<AppUpdateStatus>("/app/update-status"),
 
   pickFolder: (initialDir?: string) =>
     request<{ path: string | null }>("/dialogs/pick-folder", {
