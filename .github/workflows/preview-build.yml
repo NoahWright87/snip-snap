@@ -24,7 +24,7 @@ jobs:
               github,
               context,
               body: [
-                '## 🔨 Windows preview build',
+                '## 🔨 Windows preview build (unsigned)',
                 '',
                 `Build started - [view live logs](${runUrl}).`,
               ].join('\n'),
@@ -55,11 +55,11 @@ jobs:
         working-directory: backend
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt -r requirements-build.txt
+          python -m pip install -r requirements.txt -r requirements-build.txt
 
       - name: Run backend tests
         working-directory: backend
-        run: pytest -q
+        run: python -m pytest -q
 
       - name: Build standalone executable
         working-directory: backend
@@ -83,7 +83,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: snip-snap-preview-pr${{ github.event.pull_request.number }}
+          name: snip-snap-preview-unsigned-pr${{ github.event.pull_request.number }}
           path: backend/preview
           retention-days: 14
 
@@ -104,7 +104,7 @@ jobs:
             const result = '${{ needs.build-windows-preview.result }}'
 
             if (result === 'success') {
-              const artifactName = `snip-snap-preview-pr${context.issue.number}`
+              const artifactName = `snip-snap-preview-unsigned-pr${context.issue.number}`
               const { data } = await github.rest.actions.listWorkflowRunArtifacts({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
@@ -117,9 +117,11 @@ jobs:
                 github,
                 context,
                 body: [
-                  '## ✅ Windows preview build ready',
+                  '## ✅ Windows preview build ready (unsigned)',
                   '',
                   `📦 [Download ${artifactName}.zip](${artifactUrl})`,
+                  '⚠️ Preview artifacts are for PR testing and are unsigned.',
+                  'Included in the zip: `snip-snap.exe`.',
                   `📋 [Build log](${runUrl})`,
                 ].join('\n'),
               })

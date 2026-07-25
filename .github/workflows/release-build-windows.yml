@@ -1,0 +1,112 @@
+name: Release Build (Windows)
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version (example: 0.2.0 or v0.2.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Resolve app version
+        shell: pwsh
+        run: |
+          $inputVersion = "${{ github.event.inputs.version }}"
+          if ([string]::IsNullOrWhiteSpace($inputVersion)) {
+            $inputVersion = "${{ github.ref_name }}"
+          }
+          $resolvedVersion = $inputVersion.Trim().TrimStart('v', 'V')
+          if ([string]::IsNullOrWhiteSpace($resolvedVersion)) {
+            throw "Could not resolve APP_VERSION from input or tag."
+          }
+          "APP_VERSION=$resolvedVersion" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt -r requirements-build.txt
+
+      - name: Run backend tests
+        working-directory: backend
+        run: python -m pytest -q
+
+      - name: Install Inno Setup
+        run: choco install innosetup --yes --no-progress
+
+      - name: Generate build metadata
+        shell: pwsh
+        run: |
+          Set-Content -Path backend\app\build_info.py -Value "APP_VERSION = '$env:APP_VERSION'" -Encoding utf8
+          python backend\packaging\windows\write_version_info.py --version "$env:APP_VERSION" --output backend\packaging\windows\version_info.txt
+
+      - name: Build standalone executable
+        working-directory: backend
+        run: >
+          pyinstaller --onefile --windowed --name snip-snap
+          --version-file packaging/windows/version_info.txt
+          --add-data "../frontend/dist;frontend_dist"
+          --collect-all uvicorn
+          --collect-all pydantic
+          --collect-all pydantic_core
+          --paths .
+          --noconfirm
+          launcher.py
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" backend\packaging\windows\snip-snap.iss /DAppVersion=$env:APP_VERSION
+
+      - name: Assemble release assets
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path release-assets | Out-Null
+          Copy-Item backend\dist\snip-snap.exe release-assets\snip-snap-$env:APP_VERSION.exe
+          Copy-Item backend\packaging\windows\output\snip-snap-setup-$env:APP_VERSION.exe release-assets\
+
+      - name: Generate checksums
+        shell: pwsh
+        run: |
+          Get-ChildItem release-assets\*.exe | ForEach-Object {
+            $hash = (Get-FileHash -Algorithm SHA256 $_.FullName).Hash.ToLower()
+            "$hash  $($_.Name)" | Out-File -FilePath release-assets\checksums-sha256.txt -Encoding ascii -Append
+          }
+
+      - name: Publish GitHub release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.APP_VERSION }}
+          files: |
+            release-assets\snip-snap-${{ env.APP_VERSION }}.exe
+            release-assets\snip-snap-setup-${{ env.APP_VERSION }}.exe
+            release-assets\checksums-sha256.txt
+          generate_release_notes: true

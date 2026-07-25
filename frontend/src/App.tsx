@@ -1,6 +1,7 @@
 import { Header, Heading, Layout } from "@noahwright/design";
 import { Link, Route, Routes } from "react-router-dom";
 import FfmpegBanner from "./components/FfmpegBanner";
+import UpdateBanner from "./components/UpdateBanner";
 import EditorView from "./pages/EditorView";
 import LibraryView from "./pages/LibraryView";
 
@@ -18,6 +19,7 @@ export default function App() {
       }
     >
       <FfmpegBanner />
+      <UpdateBanner />
       <div style={{ padding: "1.5rem", maxWidth: 1100, margin: "0 auto" }}>
         <Routes>
           <Route path="/" element={<LibraryView />} />
